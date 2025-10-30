@@ -54,7 +54,7 @@
     color: var(--orca-color-text-1);
 }
 
-/* 笔记本样式 - 完全参考 orca-fav-item 设计 */
+/* 笔记本样式 - 与文档/文件夹项目样式完全统一 */
 .folder-tree-notebook {
     margin: 0;
 }
@@ -71,6 +71,9 @@
     cursor: pointer;
     user-select: none;
     font-weight: bold;
+    position: relative;
+    /* 增加条目之间的垂直间距，避免拖拽判定同时命中上下两项 */
+    margin: 2px 0;
 }
 
 .folder-tree-notebook-header:hover,
@@ -198,6 +201,22 @@
     position: relative;
     /* 增加条目之间的垂直间距，避免拖拽判定同时命中上下两项 */
     margin: 2px 0;
+}
+
+/* 笔记本项目的特殊样式 - 加粗字体显示 */
+.folder-tree-item.is-notebook {
+    font-weight: bold;
+}
+
+/* 根级项目的特殊样式 - 加粗字体，无颜色背景 */
+.folder-tree-item.is-root {
+    font-weight: 800; /* 超粗体 */
+}
+
+/* 修复根级项目图标对齐问题 */
+.folder-tree-item.is-root .folder-tree-item-icon {
+    margin-left: 0;
+    text-align: center;
 }
 
 .folder-tree-item:hover,

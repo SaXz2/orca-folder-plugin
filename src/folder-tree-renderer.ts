@@ -132,7 +132,7 @@ class FolderTreeRenderer {
     return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
   }
 
-
+  
   private createFolderIcon(): string {
     return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6M9 14h6"/></svg>';
   }
@@ -140,7 +140,7 @@ class FolderTreeRenderer {
   
   private createContent(): HTMLElement {
     const content = document.createElement('div');
-    content.className = 'folder-tree-content';
+    content.className = 'plugin-folder-tree-content orca-favorites-items';
 
     // 设置内容区域的拖拽处理
     this.setupContentDropZone(content);
@@ -183,6 +183,15 @@ class FolderTreeRenderer {
    */
   private createItemElement(item: any, level: number): HTMLElement {
     const itemEl = document.createElement('div');
+    
+    // 根据类型添加对应的class
+    if (item.type === 'notebook') {
+      itemEl.className = 'folder-tree-notebook';
+    } else if (item.type === 'folder') {
+      itemEl.className = 'folder-tree-folder';
+    } else {
+      itemEl.className = 'folder-tree-document';
+    }
 
     const isExpanded = this.expandedItems.has(item.id);
     const hasChildren = (item.type === 'notebook' || item.type === 'folder') &&
@@ -209,10 +218,17 @@ class FolderTreeRenderer {
     const isContainer = item.type === 'notebook' || item.type === 'folder';
     const hasChildren = isContainer && item.children && item.children.length > 0;
 
-    // 统一使用 folder-tree-item 类
+    // 统一使用 folder-tree-item 类，为不同类型添加特殊标识
+    const isRoot = item.parentId === null;
+    const isParent = hasChildren;
+    const notebookClass = item.type === 'notebook' ? ' is-notebook' : '';
+    const rootClass = isRoot ? ' is-root' : '';
+    const parentClass = isParent ? ' is-parent' : ' is-child';
+    const selectedClass = isSelected ? ' selected' : '';
     const header = document.createElement('div');
-    header.className = `folder-tree-item ${isSelected ? 'selected' : ''}`;
+    header.className = `folder-tree-item${notebookClass}${rootClass}${parentClass}${selectedClass}`.trim();
     header.setAttribute('data-id', item.id);
+    header.setAttribute('data-level', level.toString());
     header.style.marginLeft = `${level * 16}px`; // 缩进
 
     // 展开/折叠图标
@@ -220,15 +236,13 @@ class FolderTreeRenderer {
       ? `<i class="ti ti-chevron-right folder-tree-expand-icon ${isExpanded ? 'expanded' : ''}"></i>`
       : '<span style="width: 14px; display: inline-block;"></span>';
 
-    // 项目图标
+    // 项目图标（已经包含了完整的HTML结构）
     const itemIcon = this.getItemIcon(item);
 
     // 构建HTML - 统一使用 folder-tree-item-* 类
     header.innerHTML = `
       ${expandIcon}
-      <span class="folder-tree-item-icon">
-        ${itemIcon}
-      </span>
+      ${itemIcon}
       <span class="folder-tree-item-name">${this.escapeHtml(item.name)}</span>
       <div class="folder-tree-item-actions">
         <button class="folder-tree-btn" title="重命名">
@@ -249,6 +263,7 @@ class FolderTreeRenderer {
   private getItemIcon(item: any): string {
     // 根据类型和保存的图标信息生成图标
     let iconHtml: string;
+    const isRootItem = item.parentId === null; // 根级项目判断
 
     if (item.type === 'notebook') {
       iconHtml = `<i class="ti ti-notebook"></i>`;
@@ -267,15 +282,22 @@ class FolderTreeRenderer {
       iconHtml = `<i class="ti ti-cube"></i>`;
     }
 
-    // 处理自定义颜色
-    const iconBgStyle = item.color ? ` style="background-color: oklch(from ${item.color} calc(1.2 * l) c h / 25%);"` : '';
+    // 处理颜色：
+    // 1. 根级项目不应用颜色
+    // 2. 非根级项目应用颜色 #d6d6d6
+    const shouldApplyColor = !isRootItem;
+    
+    let iconBgStyle = '';
+    if (shouldApplyColor) {
+      iconBgStyle = ` style="background-color: oklch(from #d6d6d6 calc(1.2 * l) c h / 25%);"`;
+    }
 
     if (item.color || item.icon) {
-      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', item.color, '项目:', item.name);
+      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', shouldApplyColor ? '#d6d6d6' : '(根级，无颜色)', '项目:', item.name, '是否根级:', isRootItem);
     }
 
     const isTabler = /<i\s+class=\"ti\s+/i.test(iconHtml);
-    const iconClass = `folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${item.color ? ' has-color' : ''}`;
+    const iconClass = `folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${shouldApplyColor ? ' has-color' : ''}`;
 
     return `<span class="${iconClass}"${iconBgStyle}>${iconHtml}</span>`;
   }
@@ -288,8 +310,8 @@ class FolderTreeRenderer {
 
     // 如果有展开图标，设置点击事件
     if (expandIcon) {
-      expandIcon.onclick = (e) => {
-        e.stopPropagation();
+    expandIcon.onclick = (e) => {
+      e.stopPropagation();
         this.toggleItem(item.id);
       };
     }
@@ -312,7 +334,7 @@ class FolderTreeRenderer {
     header.addEventListener('auxclick', (e: MouseEvent) => {
       if (e.button === 1) {
         e.preventDefault();
-        e.stopPropagation();
+      e.stopPropagation();
         if ((item.type === 'notebook' || item.type === 'folder') && expandIcon) {
           this.toggleItem(item.id);
         }
@@ -330,9 +352,9 @@ class FolderTreeRenderer {
     const renameBtn = header.querySelector('.folder-tree-item-actions button') as HTMLElement;
     if (renameBtn) {
       renameBtn.onclick = (e) => {
-        e.stopPropagation();
+      e.stopPropagation();
         this.renameItem(item.id, item.type);
-      };
+    };
     }
 
     // 设置拖拽
@@ -364,15 +386,16 @@ class FolderTreeRenderer {
           if (dataText && /^\d+$/.test(dataText)) {
             await this.createDocumentFromBlock(dataText, null);
           } else {
-            this.handleOrcaDrop(e);
+        this.handleOrcaDrop(e);
           }
         }
         return;
       }
 
       // 如果有笔记本，则拖拽到第一个笔记本
-      if (this.data.notebooks.length > 0) {
-        const firstNotebook = this.data.notebooks[0];
+      const notebooks = this.core.getRootNotebooks();
+      if (notebooks.length > 0) {
+        const firstNotebook = notebooks[0];
         this.handleDrop(e, firstNotebook.id, 'notebook');
       } else {
         // 没有笔记本时，创建根级文档
@@ -557,8 +580,8 @@ class FolderTreeRenderer {
     if (document.type === 'folder') {
       const expandIcon = itemEl.querySelector('.folder-tree-expand-icon') as HTMLElement | null;
       if (expandIcon) {
-        expandIcon.onclick = (e) => {
-          e.stopPropagation();
+      expandIcon.onclick = (e) => {
+        e.stopPropagation();
           this.toggleItem(document.id);
           this.selectItem(document.id);
         };
@@ -603,15 +626,15 @@ class FolderTreeRenderer {
     const renameBtn = itemEl.querySelector('.folder-tree-item-actions button') as HTMLElement;
     if (renameBtn) {
       renameBtn.onclick = (e) => {
-        e.stopPropagation();
+      e.stopPropagation();
         this.renameDocument(document.id);
-      };
+    };
     }
 
     this.setupDragDrop(itemEl, document.id, document.type);
   }
 
-  
+
   private createChildrenElement(parentId: string, level: number): HTMLElement {
     const childrenEl = document.createElement('div');
     childrenEl.className = 'folder-tree-items';
@@ -660,9 +683,11 @@ class FolderTreeRenderer {
       }
     };
 
-    const children = this.core.getDocumentChildren(parentId);
-    children.forEach(child => {
-      const childEl = this.createDocumentElement(child, level);
+    const children = this.core.getItemChildren(parentId);
+    // 过滤掉笔记本（笔记本只能在根级显示）
+    const filteredChildren = children.filter(child => child.type !== 'notebook');
+    filteredChildren.forEach(child => {
+      const childEl = this.createItemElement(child, level);
       childrenEl.appendChild(childEl);
     });
 
@@ -700,7 +725,7 @@ class FolderTreeRenderer {
           const children = this.createChildrenElement(itemId, 1);
           wrapper.appendChild(children);
         }
-      } else {
+    } else {
         // 移除子节点
         if (existing) {
           existing.remove();
@@ -746,6 +771,16 @@ class FolderTreeRenderer {
 
       if (!draggedItem || !targetItem) return false;
 
+      // 防止笔记本嵌套：笔记本只能在根级（parentId === null）
+      if (draggedItem.type === 'notebook') {
+        const targetParentId = targetItem.parentId;
+        if (targetParentId !== null) {
+          // 尝试将笔记本移动到非根级，拒绝操作
+          (window as any).orca.notify('error', '笔记本只能在根级，不能嵌套');
+          return false;
+        }
+      }
+
       // 确定父级
       const targetParentId = targetItem.parentId;
 
@@ -774,6 +809,11 @@ class FolderTreeRenderer {
         }
       } else {
         // 无插入意图，移动到目标内部
+        // 防止笔记本嵌套：笔记本不能被移动到任何容器内部
+        if (draggedItem.type === 'notebook') {
+          (window as any).orca.notify('error', '笔记本只能在根级，不能放入容器内部');
+          return false;
+        }
         if (targetItem.type === 'document') {
           await this.core.ensureFolder(targetId);
         }
@@ -849,8 +889,8 @@ class FolderTreeRenderer {
     // 最小化更新：仅在DOM中切换选中样式，避免整树重渲染导致样式闪烁
     try {
       // 清除现有选中样式
-      const prevSelected = this.container?.querySelectorAll('.folder-tree-item.selected, .folder-tree-notebook-header.active');
-      prevSelected?.forEach(el => el.classList.remove('selected', 'active'));
+      const prevSelected = this.container?.querySelectorAll('.folder-tree-item.selected');
+      prevSelected?.forEach(el => el.classList.remove('selected'));
 
       // 给当前项添加选中样式
       const currentItem = this.container?.querySelector(`[data-id="${itemId}"]`);
@@ -903,14 +943,15 @@ class FolderTreeRenderer {
 
   private showCreateFolderInput(): void {
     // 检查是否有笔记本
-    if (this.data.notebooks.length === 0) {
+    const notebooks = this.core.getRootNotebooks();
+    if (notebooks.length === 0) {
       (window as any).orca.notify('error', '请先创建笔记本');
       return;
     }
 
     // 如果只有一个笔记本，直接在该笔记本中创建
-    if (this.data.notebooks.length === 1) {
-      this.showCreateFolderInNotebook(this.data.notebooks[0]);
+    if (notebooks.length === 1) {
+      this.showCreateFolderInNotebook(notebooks[0]);
       return;
     }
 
@@ -925,7 +966,7 @@ class FolderTreeRenderer {
     }
 
     // 默认在第一个笔记本中创建
-    this.showCreateFolderInNotebook(this.data.notebooks[0]);
+    this.showCreateFolderInNotebook(notebooks[0]);
   }
 
   private showCreateFolderInNotebook(notebook: any): void {
@@ -1012,11 +1053,11 @@ class FolderTreeRenderer {
     if (!document) return;
 
     // 直接删除，不提示
-    const success = await this.core.deleteDocument(documentId);
-    if (success) {
-      (window as any).orca.notify('success', '删除成功');
-    } else {
-      (window as any).orca.notify('error', '删除失败');
+      const success = await this.core.deleteDocument(documentId);
+      if (success) {
+        (window as any).orca.notify('success', '删除成功');
+      } else {
+        (window as any).orca.notify('error', '删除失败');
     }
   }
 
@@ -1091,7 +1132,7 @@ class FolderTreeRenderer {
               if (success) {
                 (window as any).orca.notify('success', '移动成功');
                 this.render();
-              } else {
+    } else {
                 (window as any).orca.notify('error', '文档排序失败');
               }
             }
@@ -1128,7 +1169,7 @@ class FolderTreeRenderer {
     }
 
     // 检查是否是文档ID（document_开头）
-    const draggedDoc = this.core.getDocumentById(draggedId);
+      const draggedDoc = this.core.getDocumentById(draggedId);
     
     if (draggedDoc) {
       const targetDoc = this.core.getDocumentById(targetId);
@@ -1230,15 +1271,16 @@ class FolderTreeRenderer {
       console.log('[Folder Tree] Handle Orca drop called');
 
       // 检查是否有笔记本
-      if (this.data.notebooks.length === 0) {
-        (window as any).orca.notify('warning', '请先创建笔记本');
-        return;
-      }
+      const notebooks = this.core.getRootNotebooks();
+      if (notebooks.length === 0) {
+          (window as any).orca.notify('warning', '请先创建笔记本');
+          return;
+        }
 
       // 方法1：优先使用全局监听器捕获的块ID
       if (this.currentDraggedBlockId) {
         console.log('[Folder Tree] Using captured block ID:', this.currentDraggedBlockId);
-        await this.createDocumentFromBlock(this.currentDraggedBlockId, this.data.notebooks[0].id);
+        await this.createDocumentFromBlock(this.currentDraggedBlockId, notebooks[0].id);
         this.currentDraggedBlockId = null;
         return;
       }
@@ -1250,7 +1292,7 @@ class FolderTreeRenderer {
       if (dataText && /^\d+$/.test(dataText)) {
         // 如果是纯数字的块ID
         console.log('[Folder Tree] Found block ID from dataTransfer:', dataText);
-        await this.createDocumentFromBlock(dataText, this.data.notebooks[0].id);
+        await this.createDocumentFromBlock(dataText, notebooks[0].id);
         return;
       }
 
@@ -1260,10 +1302,10 @@ class FolderTreeRenderer {
         const blockId = selectedBlocks[0].getAttribute('data-id');
         if (blockId && /^\d+$/.test(blockId)) {
           console.log('[Folder Tree] Found block ID from selected block:', blockId);
-          await this.createDocumentFromBlock(blockId, this.data.notebooks[0].id);
-          return;
-        }
-      }
+          await this.createDocumentFromBlock(blockId, notebooks[0].id);
+              return;
+            }
+          }
 
       // 如果都没有获取到，显示提示
       console.log('[Folder Tree] No block ID found');
@@ -1541,9 +1583,9 @@ class FolderTreeRenderer {
   private async reorderNotebooks(draggedId: string, targetId: string): Promise<boolean> {
     try {
       // 获取当前笔记本顺序
-      const notebooks = this.data.notebooks.sort((a: any, b: any) => a.order - b.order);
-      const draggedIndex = notebooks.findIndex((nb: any) => nb.id === draggedId);
-      const targetIndex = notebooks.findIndex((nb: any) => nb.id === targetId);
+      const notebooks = this.core.getRootNotebooks().sort((a, b) => a.order - b.order);
+      const draggedIndex = notebooks.findIndex((nb) => nb.id === draggedId);
+      const targetIndex = notebooks.findIndex((nb) => nb.id === targetId);
 
       if (draggedIndex === -1 || targetIndex === -1) {
         console.error('无法找到笔记本进行排序');
@@ -1555,13 +1597,13 @@ class FolderTreeRenderer {
       notebooks.splice(targetIndex, 0, draggedNotebook);
 
       // 重新分配order值
-      const reorderedNotebooks = notebooks.map((notebook: any, index: number) => ({
+      const reorderedNotebooks = notebooks.map((notebook, index) => ({
         ...notebook,
         order: index
       }));
 
       // 保存排序
-      const success = await this.core.reorderNotebooks(reorderedNotebooks.map((nb: any) => nb.id));
+      const success = await this.core.reorderNotebooks(reorderedNotebooks.map((nb) => nb.id));
 
       if (success) {
         // 强制重新渲染
@@ -1584,12 +1626,12 @@ class FolderTreeRenderer {
       if (targetParent.startsWith('notebook_')) {
         // 在笔记本级别
         parentId = targetParent;
-        const notebook = this.data.notebooks.find((nb: any) => nb.id === parentId);
-        siblingIds = notebook ? [...notebook.children] : [];
+        const notebook = this.core.getItemById(parentId);
+        siblingIds = notebook && notebook.children ? [...notebook.children] : [];
       } else {
         // 在文件夹级别
         parentId = targetParent;
-        const parentDoc = this.data.children?.find((doc: any) => doc.id === parentId);
+        const parentDoc = this.core.getItemById(parentId);
         siblingIds = parentDoc && parentDoc.children ? [...parentDoc.children] : [];
       }
 
