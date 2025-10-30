@@ -199,6 +199,11 @@
     justify-content: center;
 }
 
+/* 非 emoji（Tabler）图标放大到 md 尺寸 */
+.folder-tree-item-icon.is-tabler {
+    font-size: var(--orca-fontsize-md);
+}
+
 .folder-tree-item:hover .folder-tree-item-icon {
     background-color: var(--orca-color-gray-6);
     box-shadow: 0 2px 4px #0000000d;

@@ -333,6 +333,7 @@ class FolderTreeRenderer {
 
     const itemEl = window.document.createElement('div');
     itemEl.className = `folder-tree-item ${isSelected ? 'selected' : ''}`;
+    itemEl.setAttribute('data-id', doc.id);
 
     // 构建 HTML 字符串
     const expandIcon = doc.type === 'folder'
@@ -365,9 +366,10 @@ class FolderTreeRenderer {
       console.log('[Folder Tree] 渲染 - 图标:', doc.icon, '颜色:', doc.color, '文档:', doc.name);
     }
 
+    const isTabler = /<i\s+class=\"ti\s+/i.test(iconHtml);
     const html = [
       expandIcon,
-      `<span class="folder-tree-item-icon"${iconBgStyle}>${iconHtml}</span>`,
+      `<span class="folder-tree-item-icon${isTabler ? ' is-tabler' : ''}"${iconBgStyle}>${iconHtml}</span>`,
       '<span class="folder-tree-item-name">' + this.escapeHtml(doc.name) + '</span>',
       '<div class="folder-tree-item-actions">',
       '<button class="folder-tree-btn" title="重命名">' +
@@ -438,33 +440,77 @@ class FolderTreeRenderer {
   }
 
   private async toggleNotebook(notebookId: string): Promise<void> {
-    if (this.expandedNotebooks.has(notebookId)) {
-      this.expandedNotebooks.delete(notebookId);
-    } else {
-      this.expandedNotebooks.add(notebookId);
-    }
+    const willExpand = !this.expandedNotebooks.has(notebookId);
+    if (willExpand) this.expandedNotebooks.add(notebookId); else this.expandedNotebooks.delete(notebookId);
     await this.core.setExpandedState('notebooks', Array.from(this.expandedNotebooks));
-    // 立即重新渲染UI
-    this.render();
+
+    // 局部更新以避免闪烁
+    const header = this.container?.querySelector('.folder-tree-notebook-header');
+    if (header) {
+      const chevron = header.querySelector('.folder-tree-expand-icon') as HTMLElement;
+      chevron && chevron.classList.toggle('expanded', willExpand);
+      const existing = header.nextElementSibling;
+      if (willExpand) {
+        // 添加子节点
+        if (!existing || !existing.classList.contains('folder-tree-items')) {
+          const docsEl = this.createDocumentsElement(notebookId);
+          header.parentElement?.insertBefore(docsEl, existing || null);
+        }
+      } else {
+        // 移除子节点
+        if (existing && existing.classList.contains('folder-tree-items')) {
+          existing.remove();
+        }
+      }
+    }
   }
 
   private async toggleFolder(folderId: string): Promise<void> {
-    if (this.expandedFolders.has(folderId)) {
-      this.expandedFolders.delete(folderId);
-    } else {
-      this.expandedFolders.add(folderId);
-    }
+    const willExpand = !this.expandedFolders.has(folderId);
+    if (willExpand) this.expandedFolders.add(folderId); else this.expandedFolders.delete(folderId);
     await this.core.setExpandedState('folders', Array.from(this.expandedFolders));
-    // 立即重新渲染UI
-    this.render();
+
+    // 局部更新以避免闪烁
+    const item = this.container?.querySelector(`.folder-tree-item[data-id="${folderId}"]`) as HTMLElement | null;
+    if (item) {
+      const chevron = item.querySelector('.folder-tree-expand-icon') as HTMLElement;
+      chevron && chevron.classList.toggle('expanded', willExpand);
+      const docEl = item.parentElement as HTMLElement; // parent wrapper of item
+      const existing = docEl?.nextElementSibling;
+      if (willExpand) {
+        if (!existing || !existing.classList.contains('folder-tree-items')) {
+          const children = this.createChildrenElement(folderId, 2);
+          docEl?.parentElement?.insertBefore(children, existing || null);
+        }
+      } else {
+        if (existing && existing.classList.contains('folder-tree-items')) existing.remove();
+      }
+    }
   }
 
   private async selectItem(itemId: string): Promise<void> {
+    // 更新内存状态
     this.selectedItems.clear();
     this.selectedItems.add(itemId);
     await this.core.setSelectedItems(Array.from(this.selectedItems));
-    // 立即重新渲染UI以更新选中状态
-    this.render();
+
+    // 最小化更新：仅在DOM中切换选中样式，避免整树重渲染导致样式闪烁
+    try {
+      // 清除现有选中样式
+      const prevSelected = this.container?.querySelectorAll('.folder-tree-item.selected, .folder-tree-notebook-header.active');
+      prevSelected?.forEach(el => el.classList.remove('selected', 'active'));
+
+      // 给当前项添加选中样式
+      const currentItem = this.container?.querySelector(`[data-id="${itemId}"]`);
+      if (currentItem) {
+        if (currentItem.classList.contains('folder-tree-notebook-header')) {
+          currentItem.classList.add('active');
+        } else {
+          const parentItem = currentItem.closest('.folder-tree-item');
+          parentItem?.classList.add('selected');
+        }
+      }
+    } catch {}
   }
 
   private showCreateNotebookInput(): void {
