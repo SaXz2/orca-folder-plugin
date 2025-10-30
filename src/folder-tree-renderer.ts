@@ -281,23 +281,37 @@ class FolderTreeRenderer {
     }
 
     // 处理颜色：
-    // 1. 根级项目不应用颜色
-    // 2. 非根级项目应用颜色 #d6d6d6
-    const shouldApplyColor = !isRootItem;
+    // 1. 如果有 item.color（从 _color 属性读取），应用到图标的 color 属性
+    // 2. 背景色逻辑保持不变：根级项目不应用颜色，非根级项目应用默认颜色 #d6d6d6
+    const hasCustomColor = !!item.color;
+    const shouldApplyBgColor = !isRootItem;
     
-    let iconBgStyle = '';
-    if (shouldApplyColor) {
-      iconBgStyle = ` style="background-color: oklch(from #d6d6d6 calc(1.2 * l) c h / 25%);"`;
+    let iconStyle = '';
+    const styleParts: string[] = [];
+    
+    // 应用自定义颜色到 color 属性
+    if (item.color) {
+      styleParts.push(`color: ${item.color}`);
+    }
+    
+    // 应用背景色（非根级项目的默认背景色）
+    if (shouldApplyBgColor) {
+      const bgColor = item.color || '#d6d6d6';
+      styleParts.push(`background-color: oklch(from ${bgColor} calc(1.2 * l) c h / 25%)`);
+    }
+    
+    if (styleParts.length > 0) {
+      iconStyle = ` style="${styleParts.join('; ')};"`;
     }
 
     if (item.color || item.icon) {
-      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', shouldApplyColor ? '#d6d6d6' : '(根级，无颜色)', '项目:', item.name, '是否根级:', isRootItem);
+      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', item.color || '(无颜色)', '项目:', item.name, '是否根级:', isRootItem);
     }
 
     const isTabler = /<i\s+class=\"ti\s+/i.test(iconHtml);
-    const iconClass = `folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${shouldApplyColor ? ' has-color' : ''}`;
+    const iconClass = `folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${shouldApplyBgColor ? ' has-color' : ''}`;
 
-    return `<span class="${iconClass}"${iconBgStyle}>${iconHtml}</span>`;
+    return `<span class="${iconClass}"${iconStyle}>${iconHtml}</span>`;
   }
 
   /**
@@ -561,8 +575,22 @@ class FolderTreeRenderer {
       iconHtml = `<i class="ti ti-cube"></i>`;
     }
 
-    // 处理自定义颜色
-    const iconBgStyle = doc.color ? ` style="background-color: oklch(from ${doc.color} calc(1.2 * l) c h / 25%);"` : '';
+    // 处理颜色：如果有 doc.color，应用到 color 属性，同时保留背景色
+    let iconStyle = '';
+    const styleParts: string[] = [];
+    
+    // 应用自定义颜色到 color 属性
+    if (doc.color) {
+      styleParts.push(`color: ${doc.color}`);
+    }
+    
+    // 应用背景色
+    const bgColor = doc.color || '#d6d6d6';
+    styleParts.push(`background-color: oklch(from ${bgColor} calc(1.2 * l) c h / 25%)`);
+    
+    if (styleParts.length > 0) {
+      iconStyle = ` style="${styleParts.join('; ')};"`;
+    }
     
     if (doc.color || doc.icon) {
       console.log('[Folder Tree] 渲染 - 图标:', doc.icon, '颜色:', doc.color, '文档:', doc.name);
@@ -571,7 +599,7 @@ class FolderTreeRenderer {
     const isTabler = /<i\s+class=\"ti\s+/i.test(iconHtml);
     const html = [
       expandIcon,
-      `<span class="folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${doc.color ? ' has-color' : ''}"${iconBgStyle}>${iconHtml}</span>`,
+      `<span class="folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${doc.color ? ' has-color' : ''}"${iconStyle}>${iconHtml}</span>`,
       '<span class="folder-tree-item-name">' + this.escapeHtml(doc.name) + '</span>',
       '<div class="folder-tree-item-actions">',
       '<button class="folder-tree-btn" title="重命名">' +
@@ -719,6 +747,21 @@ class FolderTreeRenderer {
     const willExpand = !this.expandedItems.has(itemId);
     if (willExpand) {
       this.expandedItems.add(itemId);
+      
+      // 如果是查询块，展开时更新子项
+      const item = this.core.getItemById(itemId);
+      if (item && (item as any).isQueryBlock && (item as any).queryBlockId) {
+        const queryBlockId = (item as any).queryBlockId;
+        const queryBlock = await (window as any).orca.invokeBackend('get-block', queryBlockId);
+        if (queryBlock) {
+          const reprProp = this.findProperty(queryBlock, '_repr');
+          const queryBlockRepr = reprProp?.value;
+          if (queryBlockRepr && queryBlockRepr.type === 'query') {
+            // 更新查询结果的子项
+            await this.updateQueryBlockChildren(itemId, queryBlockRepr);
+          }
+        }
+      }
     } else {
       this.expandedItems.delete(itemId);
     }
@@ -742,6 +785,14 @@ class FolderTreeRenderer {
         if (!existing) {
           const children = this.createChildrenElement(itemId, 1);
           wrapper.appendChild(children);
+        } else {
+          // 如果已存在但需要更新（查询块的情况），重新创建
+          const itemData = this.core.getItemById(itemId);
+          if (itemData && (itemData as any).isQueryBlock) {
+            existing.remove();
+            const children = this.createChildrenElement(itemId, 1);
+            wrapper.appendChild(children);
+          }
         }
     } else {
         // 移除子节点
@@ -1333,6 +1384,16 @@ class FolderTreeRenderer {
         isAlias: !!(block.aliases && block.aliases.length > 0)
       });
 
+      // 检测是否是查询块
+      const reprProp = this.findProperty(block, '_repr');
+      const queryBlockRepr = reprProp?.value;
+      const isQueryBlock = queryBlockRepr && queryBlockRepr.type === 'query';
+
+      if (isQueryBlock) {
+        console.log('[Folder Tree] 检测到查询块，开始处理查询:', blockId);
+        return await this.createDocumentFromQueryBlock(blockId, targetId, queryBlockRepr);
+      }
+
       // 优化别名块的名称显示
       let blockName = '未命名文档';
       if (block.aliases && block.aliases.length > 0) {
@@ -1375,6 +1436,7 @@ class FolderTreeRenderer {
 
       console.log('[Folder Tree] 最终保存 - 图标:', iconClass, '颜色:', color, '块ID:', blockId, 'targetId:', targetId, '文档名称:', blockName);
 
+      // 创建普通文档（非查询块）
       const document = await this.core.createDocument(blockName, blockId, targetId, 'document', iconClass, color);
       if (document) {
         (window as any).orca.notify('success', '文档导入成功');
@@ -1406,6 +1468,225 @@ class FolderTreeRenderer {
       const errorMessage = error instanceof Error ? error.message : String(error);
       (window as any).orca.notify('error', `文档导入失败: ${errorMessage}`);
       return null;
+    }
+  }
+
+  /**
+   * 从查询块创建文档并填充查询结果
+   */
+  private async createDocumentFromQueryBlock(
+    queryBlockId: string,
+    targetId: string | null,
+    queryBlockRepr: any
+  ): Promise<string | null> {
+    try {
+      // 获取查询块信息
+      const block = await (window as any).orca.invokeBackend('get-block', queryBlockId);
+      if (!block) {
+        (window as any).orca.notify('error', `无法获取查询块信息 (ID: ${queryBlockId})`);
+        return null;
+      }
+
+      // 获取查询块的名称
+      let queryName = '查询结果';
+      if (block.aliases && block.aliases.length > 0) {
+        queryName = block.aliases[0];
+      } else if (block.text) {
+        queryName = block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text;
+      }
+
+      // 获取图标和颜色
+      const iconProp = this.findProperty(block, '_icon');
+      const colorProp = this.findProperty(block, '_color');
+      let iconClass = 'ti ti-search'; // 查询块默认图标
+      let color = '';
+
+      if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
+        iconClass = iconProp.value;
+      }
+
+      if (colorProp && colorProp.type === 1) {
+        color = colorProp.value;
+      }
+
+      // 创建查询块的父文件夹
+      const queryFolder = await this.core.createItem(
+        queryName,
+        'folder',
+        queryBlockId,
+        targetId,
+        iconClass,
+        color
+      );
+
+      if (!queryFolder) {
+        (window as any).orca.notify('error', '创建查询文件夹失败');
+        return null;
+      }
+
+      // 标记为查询块
+      await this.markItemAsQueryBlock(queryFolder.id, queryBlockId);
+
+      // 执行查询并创建动态条目
+      await this.updateQueryBlockChildren(queryFolder.id, queryBlockRepr);
+
+      // 展开父级
+      if (targetId) {
+        if (!this.expandedItems.has(targetId)) {
+          this.expandedItems.add(targetId);
+          await this.core.setExpandedState(Array.from(this.expandedItems));
+        }
+      }
+      
+      // 展开查询文件夹
+      if (!this.expandedItems.has(queryFolder.id)) {
+        this.expandedItems.add(queryFolder.id);
+        await this.core.setExpandedState(Array.from(this.expandedItems));
+      }
+
+      (window as any).orca.notify('success', '查询块导入成功');
+      
+      // 重新渲染
+      setTimeout(() => {
+        this.render();
+      }, 100);
+
+      return queryFolder.id;
+    } catch (error) {
+      console.error('[Folder Tree] 处理查询块失败:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      (window as any).orca.notify('error', `查询块处理失败: ${errorMessage}`);
+      return null;
+    }
+  }
+
+  /**
+   * 标记项目为查询块
+   */
+  private async markItemAsQueryBlock(itemId: string, queryBlockId: string): Promise<void> {
+    const item = this.core.getItemById(itemId);
+    if (!item) return;
+
+    // 直接通过 persistence 更新数据中的查询块标识
+    const persistence = (this.core as any).persistence;
+    const data = await persistence.loadData();
+    const dataItem = data.items.find((i: any) => i.id === itemId);
+    if (dataItem) {
+      (dataItem as any).isQueryBlock = true;
+      (dataItem as any).queryBlockId = queryBlockId;
+      await persistence.saveData(data);
+    }
+  }
+
+  /**
+   * 更新查询块的子项（动态文档列表）
+   */
+  private async updateQueryBlockChildren(queryFolderId: string, queryBlockRepr: any): Promise<void> {
+    try {
+      // 获取当前查询块的子项
+      const existingChildren = this.core.getItemChildren(queryFolderId);
+      const existingBlockIds = new Set(
+        existingChildren
+          .filter(child => child.blockId)
+          .map(child => child.blockId!)
+      );
+
+      // 执行查询
+      if (!queryBlockRepr.q) {
+        console.error('[Folder Tree] 查询块缺少查询配置');
+        return;
+      }
+
+      // 设置查询参数
+      const query = {
+        ...queryBlockRepr.q,
+        page: 1,
+        pageSize: 500 // 默认加载500条
+      };
+
+      const results = await (window as any).orca.invokeBackend('query', query);
+      
+      if (!results || results.length === 0) {
+        console.log('[Folder Tree] 查询结果为空');
+        return;
+      }
+
+      console.log('[Folder Tree] 查询结果数量:', results.length);
+
+      // 创建或更新查询结果条目
+      const resultBlockIds = new Set(results.map((id: number) => id.toString()));
+      
+      // 删除不再存在的条目
+      for (const child of existingChildren) {
+        if (child.blockId && !resultBlockIds.has(child.blockId)) {
+          await this.core.deleteItem(child.id);
+        }
+      }
+
+      // 添加新的查询结果条目
+      for (let i = 0; i < results.length; i++) {
+        const blockId = results[i].toString();
+        
+        // 检查是否已存在
+        const existing = existingChildren.find(child => child.blockId === blockId);
+        if (existing) {
+          // 更新顺序
+          continue;
+        }
+
+        // 获取块信息以获取名称
+        const block = await (window as any).orca.invokeBackend('get-block', blockId);
+        let blockName = `文档 ${blockId}`;
+        
+        if (block) {
+          if (block.aliases && block.aliases.length > 0) {
+            blockName = block.aliases[0];
+          } else if (block.text) {
+            blockName = block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text;
+          }
+
+          // 获取图标和颜色
+          const iconProp = this.findProperty(block, '_icon');
+          const colorProp = this.findProperty(block, '_color');
+          let iconClass = 'ti ti-cube';
+          let color = '';
+
+          if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
+            iconClass = iconProp.value;
+          } else if (block.aliases && block.aliases.length > 0) {
+            const hideProp = this.findProperty(block, '_hide');
+            iconClass = hideProp && hideProp.value ? 'ti ti-file' : 'ti ti-hash';
+          }
+
+          if (colorProp && colorProp.type === 1) {
+            color = colorProp.value;
+          }
+
+          // 创建文档条目
+          await this.core.createDocument(
+            blockName,
+            blockId,
+            queryFolderId,
+            'document',
+            iconClass,
+            color
+          );
+        }
+      }
+
+      // 重新排序以匹配查询结果顺序
+      const updatedChildren = this.core.getItemChildren(queryFolderId);
+      const orderedIds = results.map((id: number) => {
+        const child = updatedChildren.find(c => c.blockId === id.toString());
+        return child?.id;
+      }).filter(Boolean) as string[];
+
+      if (orderedIds.length > 0) {
+        await this.core.reorderItems(queryFolderId, orderedIds);
+      }
+
+    } catch (error) {
+      console.error('[Folder Tree] 更新查询块子项失败:', error);
     }
   }
 

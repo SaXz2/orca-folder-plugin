@@ -15,6 +15,8 @@ interface FolderItem {
   color?: string;
   created: string;
   modified: string;
+  queryBlockId?: string; // 如果是查询块，存储查询块的ID
+  isQueryBlock?: boolean; // 标识是否为查询块
 }
 
 interface FolderTreeData {
