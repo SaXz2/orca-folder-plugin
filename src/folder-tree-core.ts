@@ -3,7 +3,7 @@
  * 负责数据处理、状态管理和业务逻辑
  */
 
-import { FolderTreePersistence, type FolderTreeData, type FolderNotebook, type FolderDocument } from "./folder-tree-persistence";
+import { FolderTreePersistence, type FolderTreeData, type FolderItem } from "./folder-tree-persistence";
 
 class FolderTreeCore {
   private persistence: FolderTreePersistence;
@@ -83,233 +83,177 @@ class FolderTreeCore {
     return success;
   }
 
-  // ========== 笔记本操作 ==========
+  // ========== 项目操作（统一接口） ==========
 
   /**
-   * 创建笔记本
+   * 创建项目（笔记本、文件夹或文档）
    */
-  async createNotebook(name: string): Promise<FolderNotebook | null> {
-    const notebook = await this.persistence.createNotebook(name);
-    if (notebook && this.data) {
-      this.data.notebooks.push(notebook);
-      await this.saveData();
-    }
-    return notebook;
-  }
-
-  /**
-   * 删除笔记本
-   */
-  async deleteNotebook(notebookId: string): Promise<boolean> {
-    const success = await this.persistence.deleteNotebook(notebookId);
-    if (success && this.data) {
-      this.data.notebooks = this.data.notebooks.filter(nb => nb.id !== notebookId);
-      await this.saveData();
-    }
-    return success;
-  }
-
-  /**
-   * 重命名笔记本
-   */
-  async renameNotebook(notebookId: string, newName: string): Promise<boolean> {
-    const success = await this.persistence.renameNotebook(notebookId, newName);
-    if (success && this.data) {
-      const notebook = this.data.notebooks.find(nb => nb.id === notebookId);
-      if (notebook) {
-        notebook.name = newName;
-        await this.saveData();
-      }
-    }
-    return success;
-  }
-
-  /**
-   * 重新排序笔记本
-   */
-  async reorderNotebooks(notebookIds: string[]): Promise<boolean> {
-    if (!this.data) return false;
-
-    try {
-      // 更新排序
-      notebookIds.forEach((id, index) => {
-        const notebook = this.data!.notebooks.find(nb => nb.id === id);
-        if (notebook) {
-          notebook.order = index;
-        }
-      });
-
-      // 重新排序数组
-      this.data.notebooks.sort((a, b) => a.order - b.order);
-
-      return await this.saveData();
-    } catch (error) {
-      console.error("[Folder Tree] 重排序笔记本失败:", error);
-      return false;
-    }
-  }
-
-  // ========== 文档/文件夹操作 ==========
-
-  /**
-   * 创建文档
-   */
-  async createDocument(
+  async createItem(
     name: string,
-    blockId: string | null,
-    parentId: string,
-    type: "document" | "folder" = "document",
+    type: "notebook" | "folder" | "document",
+    blockId: string | null = null,
+    parentId: string | null = null,
     icon?: string,
     color?: string
-  ): Promise<FolderDocument | null> {
-    const document = await this.persistence.createDocument(name, blockId, parentId, type, icon, color);
-    if (document && this.data) {
+  ): Promise<FolderItem | null> {
+    const item = await this.persistence.createItem(name, type, blockId, parentId, icon, color);
+    if (item && this.data) {
       // 重新加载完整数据以保持同步
       this.data = await this.persistence.loadData();
       // 触发UI更新
       this.notifyDataChange();
     }
-    return document;
+    return item;
   }
 
   /**
-   * 删除文档
+   * 删除项目
    */
-  async deleteDocument(documentId: string): Promise<boolean> {
-    const success = await this.persistence.deleteDocument(documentId);
+  async deleteItem(itemId: string): Promise<boolean> {
+    const success = await this.persistence.deleteItem(itemId);
     if (success && this.data) {
-      const deleteRecursively = (id: string) => {
-        const doc = this.data!.documents.find(d => d.id === id);
-        if (doc) {
-          if (doc.type === "folder" && doc.children) {
-            doc.children.forEach(childId => deleteRecursively(childId));
-          }
-          this.data!.documents = this.data!.documents.filter(d => d.id !== id);
-        }
-      };
-      deleteRecursively(documentId);
+      // 重新加载数据以保持同步
+      this.data = await this.persistence.loadData();
       await this.saveData();
     }
     return success;
   }
 
   /**
-   * 重命名文档
+   * 重命名项目
    */
-  async renameDocument(documentId: string, newName: string): Promise<boolean> {
+  async renameItem(itemId: string, newName: string): Promise<boolean> {
     if (!this.data) return false;
 
-    const document = this.data.documents.find(doc => doc.id === documentId);
-    if (!document) return false;
-
-    document.name = newName;
-    document.modified = new Date().toISOString();
-
-    return await this.saveData();
+    const success = await this.persistence.renameItem(itemId, newName);
+    if (success) {
+      // 更新本地数据
+      const item = this.data.items.find(i => i.id === itemId);
+      if (item) {
+        item.name = newName;
+        item.modified = new Date().toISOString();
+      }
+      await this.saveData();
+    }
+    return success;
   }
 
   /**
-   * 移动文档
+   * 移动项目
+   */
+  async moveItem(
+    itemId: string,
+    newParentId: string | null,
+    insertIndex?: number
+  ): Promise<boolean> {
+    const success = await this.persistence.moveItem(itemId, newParentId, insertIndex);
+    if (success && this.data) {
+      // 重新加载数据以保持同步
+      this.data = await this.persistence.loadData();
+      this.notifyDataChange();
+    }
+    return success;
+  }
+
+  /**
+   * 重新排序项目
+   */
+  async reorderItems(parentId: string | null, itemIds: string[]): Promise<boolean> {
+    if (!this.data) return false;
+
+    const success = await this.persistence.reorderItems(parentId, itemIds);
+    if (success) {
+      // 重新加载数据以保持同步
+      this.data = await this.persistence.loadData();
+      this.notifyDataChange();
+    }
+    return success;
+  }
+
+  /**
+   * 确保指定项目为文件夹
+   */
+  async ensureFolder(itemId: string): Promise<boolean> {
+    if (!this.data) return false;
+    const item = this.data.items.find(i => i.id === itemId);
+    if (!item) return false;
+
+    if (item.type !== "folder") {
+      item.type = "folder";
+      if (!item.children) item.children = [];
+      return await this.saveData();
+    }
+    if (!item.children) item.children = [];
+    return await this.saveData();
+  }
+
+  // ========== 兼容性方法（向后兼容） ==========
+
+  /**
+   * 创建笔记本（兼容性方法）
+   */
+  async createNotebook(name: string): Promise<FolderItem | null> {
+    return this.createItem(name, "notebook");
+  }
+
+  /**
+   * 删除笔记本（兼容性方法）
+   */
+  async deleteNotebook(notebookId: string): Promise<boolean> {
+    return this.deleteItem(notebookId);
+  }
+
+  /**
+   * 重命名笔记本（兼容性方法）
+   */
+  async renameNotebook(notebookId: string, newName: string): Promise<boolean> {
+    return this.renameItem(notebookId, newName);
+  }
+
+  /**
+   * 重新排序笔记本（兼容性方法）
+   */
+  async reorderNotebooks(notebookIds: string[]): Promise<boolean> {
+    return this.reorderItems(null, notebookIds);
+  }
+
+  /**
+   * 创建文档（兼容性方法）
+   */
+  async createDocument(
+    name: string,
+    blockId: string | null,
+    parentId: string | null,
+    type: "document" | "folder" = "document",
+    icon?: string,
+    color?: string
+  ): Promise<FolderItem | null> {
+    return this.createItem(name, type, blockId, parentId, icon, color);
+  }
+
+  /**
+   * 删除文档（兼容性方法）
+   */
+  async deleteDocument(documentId: string): Promise<boolean> {
+    return this.deleteItem(documentId);
+  }
+
+  /**
+   * 重命名文档（兼容性方法）
+   */
+  async renameDocument(documentId: string, newName: string): Promise<boolean> {
+    return this.renameItem(documentId, newName);
+  }
+
+  /**
+   * 移动文档（兼容性方法）
    */
   async moveDocument(
     documentId: string,
     newParentId: string,
     insertIndex?: number
   ): Promise<boolean> {
-    if (!this.data) return false;
-
-    try {
-      const document = this.data.documents.find(doc => doc.id === documentId);
-      if (!document) return false;
-
-      const oldParentId = document.parentId;
-
-      // 从旧父级移除
-      if (oldParentId?.startsWith("notebook_")) {
-        const notebook = this.data.notebooks.find(nb => nb.id === oldParentId);
-        if (notebook) {
-          notebook.documents = notebook.documents.filter(id => id !== documentId);
-        }
-      } else if (oldParentId) {
-        const oldParent = this.data.documents.find(doc => doc.id === oldParentId);
-        if (oldParent && oldParent.children) {
-          oldParent.children = oldParent.children.filter(id => id !== documentId);
-        }
-      }
-
-      // 更新父级和排序
-      document.parentId = newParentId;
-
-      // 添加到新父级并设置排序
-      if (newParentId.startsWith("notebook_")) {
-        const notebook = this.data.notebooks.find(nb => nb.id === newParentId);
-        if (notebook) {
-          if (insertIndex !== undefined) {
-            notebook.documents.splice(insertIndex, 0, documentId);
-          } else {
-            notebook.documents.push(documentId);
-          }
-        }
-      } else {
-        const newParent = this.data.documents.find(doc => doc.id === newParentId);
-        if (newParent && newParent.type === "folder") {
-          if (!newParent.children) newParent.children = [];
-          if (insertIndex !== undefined) {
-            newParent.children.splice(insertIndex, 0, documentId);
-          } else {
-            newParent.children.push(documentId);
-          }
-        }
-      }
-
-      // 更新排序号
-      this.updateDocumentOrder(newParentId);
-
-      return await this.saveData();
-    } catch (error) {
-      console.error("[Folder Tree] 移动文档失败:", error);
-      return false;
-    }
-  }
-
-  /**
-   * 确保指定文档为文件夹（若是普通文档则转换为 folder 并初始化 children）
-   */
-  async ensureFolder(documentId: string): Promise<boolean> {
-    if (!this.data) return false;
-    const doc = this.data.documents.find(d => d.id === documentId);
-    if (!doc) return false;
-    if (doc.type !== "folder") {
-      doc.type = "folder";
-      if (!doc.children) doc.children = [];
-      return await this.saveData();
-    }
-    if (!doc.children) doc.children = [];
-    return await this.saveData();
-  }
-
-  /**
-   * 更新文档排序
-   */
-  private updateDocumentOrder(parentId: string): void {
-    if (!this.data) return;
-
-    if (parentId.startsWith("notebook_")) {
-      const notebook = this.data.notebooks.find(nb => nb.id === parentId);
-      if (notebook) {
-        notebook.documents.forEach((docId, index) => {
-          const doc = this.data!.documents.find(d => d.id === docId);
-          if (doc) {
-            doc.order = index;
-          }
-        });
-      }
-    } else {
-      const siblings = this.data.documents.filter(doc => doc.parentId === parentId);
-      siblings.forEach((doc, index) => {
-        doc.order = index;
-      });
-    }
+    return this.moveItem(documentId, newParentId, insertIndex);
   }
 
   // ========== 设置操作 ==========
@@ -317,15 +261,10 @@ class FolderTreeCore {
   /**
    * 设置展开状态
    */
-  async setExpandedState(type: "notebooks" | "folders", ids: string[]): Promise<boolean> {
+  async setExpandedState(ids: string[]): Promise<boolean> {
     if (!this.data) return false;
 
-    if (type === "notebooks") {
-      this.data.settings.expandedNotebooks = ids;
-    } else {
-      this.data.settings.expandedFolders = ids;
-    }
-
+    this.data.settings.expandedItems = ids;
     return await this.persistence.saveSettings(this.data.settings);
   }
 
@@ -340,17 +279,10 @@ class FolderTreeCore {
   }
 
   /**
-   * 获取展开的笔记本
+   * 获取展开的项目
    */
-  getExpandedNotebooks(): string[] {
-    return this.data?.settings.expandedNotebooks || [];
-  }
-
-  /**
-   * 获取展开的文件夹
-   */
-  getExpandedFolders(): string[] {
-    return this.data?.settings.expandedFolders || [];
+  getExpandedItems(): string[] {
+    return this.data?.settings.expandedItems || [];
   }
 
   /**
@@ -360,69 +292,164 @@ class FolderTreeCore {
     return this.data?.settings.selectedItems || [];
   }
 
+  // ========== 兼容性设置方法 ==========
+
+  /**
+   * 设置展开状态（兼容性方法）
+   */
+  async setExpandedStateOld(type: "notebooks" | "folders", ids: string[]): Promise<boolean> {
+    // 合并到新的展开状态中
+    const currentExpanded = this.getExpandedItems();
+    let newExpanded: string[] = [];
+
+    if (type === "notebooks") {
+      // 保留当前的非笔记本展开项，添加新的笔记本展开项
+      newExpanded = [
+        ...currentExpanded.filter(id => {
+          const item = this.data?.items.find(i => i.id === id);
+          return item?.type !== "notebook";
+        }),
+        ...ids
+      ];
+    } else {
+      // 保留当前的笔记本展开项，添加新的文件夹展开项
+      newExpanded = [
+        ...currentExpanded.filter(id => {
+          const item = this.data?.items.find(i => i.id === id);
+          return item?.type === "notebook";
+        }),
+        ...ids
+      ];
+    }
+
+    return this.setExpandedState(newExpanded);
+  }
+
+  /**
+   * 获取展开的笔记本（兼容性方法）
+   */
+  getExpandedNotebooks(): string[] {
+    const expanded = this.getExpandedItems();
+    return expanded.filter(id => {
+      const item = this.data?.items.find(i => i.id === id);
+      return item?.type === "notebook";
+    });
+  }
+
+  /**
+   * 获取展开的文件夹（兼容性方法）
+   */
+  getExpandedFolders(): string[] {
+    const expanded = this.getExpandedItems();
+    return expanded.filter(id => {
+      const item = this.data?.items.find(i => i.id === id);
+      return item?.type === "folder";
+    });
+  }
+
   
   
   // ========== 工具方法 ==========
 
   /**
-   * 根据ID获取文档
+   * 根据ID获取项目
    */
-  getDocumentById(id: string): FolderDocument | null {
-    return this.data?.documents.find(doc => doc.id === id) || null;
+  getItemById(id: string): FolderItem | null {
+    return this.data?.items.find(item => item.id === id) || null;
   }
 
   /**
-   * 根据ID获取笔记本
+   * 获取项目的子项目
    */
-  getNotebookById(id: string): FolderNotebook | null {
-    return this.data?.notebooks.find(nb => nb.id === id) || null;
-  }
-
-  /**
-   * 获取文档的子文档
-   */
-  getDocumentChildren(documentId: string): FolderDocument[] {
+  getItemChildren(itemId: string): FolderItem[] {
     if (!this.data) return [];
 
-    const children = this.data.documents.filter(doc => doc.parentId === documentId);
+    const children = this.data.items.filter(item => item.parentId === itemId);
     return children.sort((a, b) => a.order - b.order);
   }
 
-  /**
-   * 获取笔记本的文档
-   */
-  getNotebookDocuments(notebookId: string): FolderDocument[] {
+  /** 根级项目（包括笔记本和文档） */
+  getRootItems(): FolderItem[] {
     if (!this.data) return [];
+    const items = this.data.items.filter(item => item.parentId === null);
+    return items.sort((a, b) => a.order - b.order);
+  }
 
-    const documentIds = this.data.notebooks.find(nb => nb.id === notebookId)?.documents || [];
-    const documents = documentIds
-      .map(id => this.data!.documents.find(doc => doc.id === id))
-      .filter(Boolean) as FolderDocument[];
+  // ========== 兼容性工具方法 ==========
 
-    return documents.sort((a, b) => a.order - b.order);
+  /**
+   * 根据ID获取文档（兼容性方法）
+   */
+  getDocumentById(id: string): FolderItem | null {
+    const item = this.getItemById(id);
+    return item?.type === "document" || item?.type === "folder" ? item : null;
+  }
+
+  /**
+   * 根据ID获取笔记本（兼容性方法）
+   */
+  getNotebookById(id: string): FolderItem | null {
+    const item = this.getItemById(id);
+    return item?.type === "notebook" ? item : null;
+  }
+
+  /**
+   * 获取文档的子文档（兼容性方法）
+   */
+  getDocumentChildren(documentId: string): FolderItem[] {
+    const children = this.getItemChildren(documentId);
+    return children.filter(item => item.type === "document" || item.type === "folder");
+  }
+
+  /**
+   * 获取笔记本的文档（兼容性方法）
+   */
+  getNotebookDocuments(notebookId: string): FolderItem[] {
+    const children = this.getItemChildren(notebookId);
+    return children.filter(item => item.type === "document" || item.type === "folder");
+  }
+
+  /** 根级文档（与笔记本同级）（兼容性方法） */
+  getRootDocuments(): FolderItem[] {
+    const rootItems = this.getRootItems();
+    return rootItems.filter(item => item.type === "document" || item.type === "folder");
+  }
+
+  /** 根级笔记本（兼容性方法） */
+  getRootNotebooks(): FolderItem[] {
+    const rootItems = this.getRootItems();
+    return rootItems.filter(item => item.type === "notebook");
   }
 
   /**
    * 检查是否为空
    */
   isEmpty(): boolean {
-    return this.data ? this.data.notebooks.length === 0 : true;
+    return this.data ? this.data.items.length === 0 : true;
   }
 
   /**
-   * 搜索文档
+   * 搜索项目
    */
-  searchDocuments(keyword: string): FolderDocument[] {
+  searchItems(keyword: string): FolderItem[] {
     if (!this.data || !keyword.trim()) return [];
 
     const lowerKeyword = keyword.toLowerCase();
-    return this.data.documents.filter(doc =>
-      doc.name.toLowerCase().includes(lowerKeyword)
+    return this.data.items.filter(item =>
+      item.name.toLowerCase().includes(lowerKeyword)
     );
   }
 
   /**
-   * 从块ID添加文档到笔记本
+   * 搜索文档（兼容性方法）
+   */
+  searchDocuments(keyword: string): FolderItem[] {
+    const items = this.searchItems(keyword);
+    return items.filter(item => item.type === "document" || item.type === "folder");
+  }
+
+  /**
+   * 从块ID添加文档到笔记本（兼容性方法）
    */
   async addDocumentToNotebook(blockId: string, notebookId: string): Promise<boolean> {
     if (!this.data) return false;
@@ -443,10 +470,10 @@ class FolderTreeCore {
       const document = await this.createDocument(blockName, blockId, notebookId, 'document');
       if (document) {
         // 确保笔记本展开
-        const notebook = this.data.notebooks.find(nb => nb.id === notebookId);
-        if (notebook && !this.data.settings.expandedNotebooks.includes(notebookId)) {
-          this.data.settings.expandedNotebooks.push(notebookId);
-          await this.persistence.saveSettings(this.data.settings);
+        const expandedItems = this.getExpandedItems();
+        if (!expandedItems.includes(notebookId)) {
+          expandedItems.push(notebookId);
+          await this.setExpandedState(expandedItems);
         }
 
         return true;
@@ -460,40 +487,10 @@ class FolderTreeCore {
   }
 
   /**
-   * 重新排序文档
+   * 重新排序文档（兼容性方法）
    */
   async reorderDocuments(parentId: string, documentIds: string[]): Promise<boolean> {
-    if (!this.data) return false;
-
-    try {
-      // 更新父级的子文档列表 - 这里的documentIds已经是重新排序后的完整列表
-      if (parentId.startsWith('notebook_')) {
-        // 在笔记本中
-        const notebook = this.data.notebooks.find(nb => nb.id === parentId);
-        if (notebook) {
-          notebook.documents = [...documentIds];
-        }
-      } else {
-        // 在文件夹中
-        const parentDoc = this.data.documents.find(doc => doc.id === parentId);
-        if (parentDoc && parentDoc.type === 'folder') {
-          parentDoc.children = [...documentIds];
-        }
-      }
-
-      // 更新所有文档的排序字段
-      documentIds.forEach((docId, index) => {
-        const doc = this.data?.documents.find(d => d.id === docId);
-        if (doc) {
-          doc.order = index;
-        }
-      });
-
-      return await this.saveData();
-    } catch (error) {
-      console.error('Reorder documents error:', error);
-      return false;
-    }
+    return this.reorderItems(parentId, documentIds);
   }
 }
 

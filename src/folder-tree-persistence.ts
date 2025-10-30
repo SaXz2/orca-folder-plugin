@@ -3,13 +3,13 @@
  * 负责数据的存储、读取、备份和恢复
  */
 
-interface FolderDocument {
+interface FolderItem {
   id: string;
   name: string;
   blockId: string | null;
   parentId: string | null;
   order: number;
-  type: "document" | "folder";
+  type: "notebook" | "folder" | "document";
   children?: string[];
   icon?: string;
   color?: string;
@@ -17,21 +17,10 @@ interface FolderDocument {
   modified: string;
 }
 
-interface FolderNotebook {
-  id: string;
-  name: string;
-  order: number;
-  created: string;
-  modified: string;
-  documents: string[];
-}
-
 interface FolderTreeData {
-  notebooks: FolderNotebook[];
-  documents: FolderDocument[];
+  items: FolderItem[];
   settings: {
-    expandedNotebooks: string[];
-    expandedFolders: string[];
+    expandedItems: string[];
     selectedItems: string[];
   };
 }
@@ -45,11 +34,9 @@ class FolderTreePersistence {
    */
   private getDefaultData(): FolderTreeData {
     return {
-      notebooks: [],
-      documents: [],
+      items: [],
       settings: {
-        expandedNotebooks: [],
-        expandedFolders: [],
+        expandedItems: [],
         selectedItems: [],
       },
     };
@@ -74,24 +61,85 @@ class FolderTreePersistence {
         return this.getDefaultData();
       }
 
-      const data = JSON.parse(dataStr) as FolderTreeData;
+      const data = JSON.parse(dataStr);
 
-      // 数据迁移和兼容性处理
-      // 移除了备份相关字段
+      // 数据迁移：从旧格式迁移到新格式
+      if (data.notebooks && data.documents) {
+        return this.migrateFromOldFormat(data);
+      }
 
-      if (!data.settings) {
-        data.settings = {
-          expandedNotebooks: [],
-          expandedFolders: [],
+      // 新格式数据
+      const newData = data as FolderTreeData;
+
+      // 确保设置存在
+      if (!newData.settings) {
+        newData.settings = {
+          expandedItems: [],
           selectedItems: [],
         };
       }
 
-      return data;
+      return newData;
     } catch (error) {
       console.error("[Folder Tree] 加载数据失败:", error);
       return this.getDefaultData();
     }
+  }
+
+  /**
+   * 从旧格式迁移数据到新格式
+   */
+  private migrateFromOldFormat(oldData: any): FolderTreeData {
+    console.log("[Folder Tree] 开始迁移旧格式数据");
+
+    const items: FolderItem[] = [];
+
+    // 迁移笔记本
+    if (oldData.notebooks) {
+      oldData.notebooks.forEach((notebook: any) => {
+        items.push({
+          id: notebook.id,
+          name: notebook.name,
+          blockId: null,
+          parentId: null,
+          order: notebook.order,
+          type: "notebook",
+          children: notebook.documents || [],
+          icon: "ti ti-notebook",
+          created: notebook.created,
+          modified: notebook.modified
+        });
+      });
+    }
+
+    // 迁移文档和文件夹
+    if (oldData.documents) {
+      oldData.documents.forEach((doc: any) => {
+        items.push({
+          ...doc,
+          type: doc.type || "document" // 确保类型正确
+        });
+      });
+    }
+
+    // 迁移设置
+    const settings = {
+      expandedItems: [
+        ...(oldData.settings?.expandedNotebooks || []),
+        ...(oldData.settings?.expandedFolders || [])
+      ],
+      selectedItems: oldData.settings?.selectedItems || []
+    };
+
+    console.log("[Folder Tree] 数据迁移完成，共迁移", items.length, "个项目");
+
+    // 保存新格式
+    const newData = { items, settings };
+    this.saveData(newData).catch(err =>
+      console.error("[Folder Tree] 保存迁移后数据失败:", err)
+    );
+
+    return newData;
   }
 
   /**
@@ -102,13 +150,9 @@ class FolderTreePersistence {
       // 更新修改时间
       const now = new Date().toISOString();
 
-      // 更新笔记本和文档的修改时间
-      data.notebooks.forEach(notebook => {
-        notebook.modified = now;
-      });
-
-      data.documents.forEach(doc => {
-        doc.modified = now;
+      // 更新所有项目的修改时间
+      data.items.forEach(item => {
+        item.modified = now;
       });
 
       const dataStr = JSON.stringify(data, null, 2);
@@ -124,254 +168,153 @@ class FolderTreePersistence {
   }
 
   /**
-   * 创建笔记本
+   * 创建项目（笔记本、文件夹或文档）
    */
-  async createNotebook(name: string): Promise<FolderNotebook | null> {
-    try {
-      const data = await this.loadData();
-
-      const notebook: FolderNotebook = {
-        id: this.generateId("notebook"),
-        name,
-        order: data.notebooks.length,
-        created: new Date().toISOString(),
-        modified: new Date().toISOString(),
-        documents: [],
-      };
-
-      data.notebooks.push(notebook);
-
-      const success = await this.saveData(data);
-      return success ? notebook : null;
-    } catch (error) {
-      console.error("[Folder Tree] 创建笔记本失败:", error);
-      return null;
-    }
-  }
-
-  /**
-   * 删除笔记本
-   */
-  async deleteNotebook(notebookId: string): Promise<boolean> {
-    try {
-      const data = await this.loadData();
-
-      // 删除笔记本
-      const notebookIndex = data.notebooks.findIndex(nb => nb.id === notebookId);
-      if (notebookIndex === -1) return false;
-
-      const notebook = data.notebooks[notebookIndex];
-
-      // 删除笔记本下的所有文档
-      const documentsToDelete = new Set<string>(notebook.documents);
-
-      // 递归删除文件夹和文档
-      const deleteRecursively = (docId: string) => {
-        const doc = data.documents.find(d => d.id === docId);
-        if (doc && doc.children) {
-          doc.children.forEach(childId => deleteRecursively(childId));
-        }
-        documentsToDelete.add(docId);
-      };
-
-      notebook.documents.forEach(docId => deleteRecursively(docId));
-
-      // 从数据中删除
-      data.documents = data.documents.filter(doc => !documentsToDelete.has(doc.id));
-      data.notebooks.splice(notebookIndex, 1);
-
-      // 重新排序
-      data.notebooks.forEach((nb, index) => {
-        nb.order = index;
-      });
-
-      return await this.saveData(data);
-    } catch (error) {
-      console.error("[Folder Tree] 删除笔记本失败:", error);
-      return false;
-    }
-  }
-
-  /**
-   * 重命名笔记本
-   */
-  async renameNotebook(notebookId: string, newName: string): Promise<boolean> {
-    try {
-      const data = await this.loadData();
-      const notebook = data.notebooks.find(nb => nb.id === notebookId);
-      if (!notebook) return false;
-
-      notebook.name = newName;
-      notebook.modified = new Date().toISOString();
-
-      return await this.saveData(data);
-    } catch (error) {
-      console.error("[Folder Tree] 重命名笔记本失败:", error);
-      return false;
-    }
-  }
-
-  /**
-   * 创建文档/文件夹
-   */
-  async createDocument(
+  async createItem(
     name: string,
-    blockId: string | null,
-    parentId: string,
-    type: "document" | "folder" = "document",
+    type: "notebook" | "folder" | "document",
+    blockId: string | null = null,
+    parentId: string | null = null,
     icon?: string,
     color?: string
-  ): Promise<FolderDocument | null> {
+  ): Promise<FolderItem | null> {
     try {
       const data = await this.loadData();
 
-      const document: FolderDocument = {
-        id: this.generateId("document"),
+      // 获取下一个排序号
+      const order = this.getNextOrder(data, parentId);
+
+      const item: FolderItem = {
+        id: this.generateId(type),
         name,
         blockId,
-        parentId,
-        order: this.getNextOrder(data, parentId),
+        parentId: parentId || null,
+        order,
         type,
-        children: type === "folder" ? [] : undefined,
-        icon,
+        children: type === "folder" || type === "notebook" ? [] : undefined,
+        icon: icon || (type === "notebook" ? "ti ti-notebook" : type === "folder" ? "ti ti-folder" : "ti ti-cube"),
         color,
         created: new Date().toISOString(),
         modified: new Date().toISOString(),
       };
 
-      data.documents.push(document);
+      data.items.push(item);
 
       // 更新父级的children列表
-      if (parentId.startsWith("notebook_")) {
-        const notebook = data.notebooks.find(nb => nb.id === parentId);
-        if (notebook) {
-          notebook.documents.push(document.id);
-        }
-      } else {
-        const parentDoc = data.documents.find(doc => doc.id === parentId);
-        if (parentDoc && parentDoc.type === "folder") {
-          if (!parentDoc.children) parentDoc.children = [];
-          parentDoc.children.push(document.id);
+      if (parentId) {
+        const parent = data.items.find(i => i.id === parentId);
+        if (parent && (parent.type === "folder" || parent.type === "notebook")) {
+          if (!parent.children) parent.children = [];
+          parent.children.push(item.id);
         }
       }
 
       const success = await this.saveData(data);
-      return success ? document : null;
+      return success ? item : null;
     } catch (error) {
-      console.error("[Folder Tree] 创建文档失败:", error);
+      console.error("[Folder Tree] 创建项目失败:", error);
       return null;
     }
   }
 
   /**
-   * 删除文档/文件夹
+   * 删除项目
    */
-  async deleteDocument(documentId: string): Promise<boolean> {
+  async deleteItem(itemId: string): Promise<boolean> {
     try {
       const data = await this.loadData();
 
       // 递归删除
-      const deleteRecursively = (docId: string) => {
-        const doc = data.documents.find(d => d.id === docId);
-        if (!doc) return;
+      const deleteRecursively = (id: string) => {
+        const item = data.items.find(i => i.id === id);
+        if (!item) return;
 
-        // 如果是文件夹，递归删除子项
-        if (doc.type === "folder" && doc.children) {
-          doc.children.forEach(childId => deleteRecursively(childId));
+        // 如果是文件夹或笔记本，递归删除子项
+        if (item.children && item.children.length > 0) {
+          item.children.forEach(childId => deleteRecursively(childId));
         }
 
         // 从父级中移除
-        if (doc.parentId?.startsWith("notebook_")) {
-          const notebook = data.notebooks.find(nb => nb.id === doc.parentId);
-          if (notebook) {
-            notebook.documents = notebook.documents.filter(id => id !== docId);
-          }
-        } else if (doc.parentId) {
-          const parentDoc = data.documents.find(d => d.id === doc.parentId);
-          if (parentDoc && parentDoc.children) {
-            parentDoc.children = parentDoc.children.filter(id => id !== docId);
+        if (item.parentId) {
+          const parent = data.items.find(i => i.id === item.parentId);
+          if (parent && parent.children) {
+            parent.children = parent.children.filter(id => id !== id);
           }
         }
 
-        // 删除文档
-        data.documents = data.documents.filter(d => d.id !== docId);
+        // 删除项目
+        data.items = data.items.filter(i => i.id !== id);
       };
 
-      deleteRecursively(documentId);
+      deleteRecursively(itemId);
 
       return await this.saveData(data);
     } catch (error) {
-      console.error("[Folder Tree] 删除文档失败:", error);
+      console.error("[Folder Tree] 删除项目失败:", error);
       return false;
     }
   }
 
   /**
-   * 移动文档/笔记本
+   * 重命名项目
+   */
+  async renameItem(itemId: string, newName: string): Promise<boolean> {
+    try {
+      const data = await this.loadData();
+      const item = data.items.find(i => i.id === itemId);
+      if (!item) return false;
+
+      item.name = newName;
+      item.modified = new Date().toISOString();
+
+      return await this.saveData(data);
+    } catch (error) {
+      console.error("[Folder Tree] 重命名项目失败:", error);
+      return false;
+    }
+  }
+
+  /**
+   * 移动项目
    */
   async moveItem(
     itemId: string,
     newParentId: string | null,
-    newOrder?: number
+    insertIndex?: number
   ): Promise<boolean> {
     try {
       const data = await this.loadData();
+      const item = data.items.find(i => i.id === itemId);
+      if (!item) return false;
 
-      // 移动笔记本
-      if (itemId.startsWith("notebook_")) {
-        const notebookIndex = data.notebooks.findIndex(nb => nb.id === itemId);
-        if (notebookIndex === -1) return false;
+      const oldParentId = item.parentId;
 
-        const notebook = data.notebooks[notebookIndex];
-        if (newOrder !== undefined) {
-          notebook.order = newOrder;
+      // 从旧父级移除
+      if (oldParentId) {
+        const oldParent = data.items.find(i => i.id === oldParentId);
+        if (oldParent && oldParent.children) {
+          oldParent.children = oldParent.children.filter(id => id !== itemId);
         }
-
-        // 重新排序其他笔记本
-        data.notebooks.sort((a, b) => a.order - b.order);
-        data.notebooks.forEach((nb, index) => {
-          nb.order = index;
-        });
       }
-      // 移动文档/文件夹
-      else {
-        const doc = data.documents.find(d => d.id === itemId);
-        if (!doc) return false;
 
-        const oldParentId = doc.parentId;
+      // 更新父级
+      item.parentId = newParentId;
 
-        // 从旧父级中移除
-        if (oldParentId?.startsWith("notebook_")) {
-          const notebook = data.notebooks.find(nb => nb.id === oldParentId);
-          if (notebook) {
-            notebook.documents = notebook.documents.filter(id => id !== itemId);
-          }
-        } else if (oldParentId) {
-          const parentDoc = data.documents.find(d => d.id === oldParentId);
-          if (parentDoc && parentDoc.children) {
-            parentDoc.children = parentDoc.children.filter(id => id !== itemId);
-          }
-        }
-
-        // 添加到新父级
-        doc.parentId = newParentId;
-        if (newOrder !== undefined) {
-          doc.order = newOrder;
-        }
-
-        if (newParentId?.startsWith("notebook_")) {
-          const notebook = data.notebooks.find(nb => nb.id === newParentId);
-          if (notebook) {
-            notebook.documents.push(itemId);
-          }
-        } else if (newParentId) {
-          const parentDoc = data.documents.find(d => d.id === newParentId);
-          if (parentDoc && parentDoc.type === "folder") {
-            if (!parentDoc.children) parentDoc.children = [];
-            parentDoc.children.push(itemId);
+      // 添加到新父级
+      if (newParentId) {
+        const newParent = data.items.find(i => i.id === newParentId);
+        if (newParent && (newParent.type === "folder" || newParent.type === "notebook")) {
+          if (!newParent.children) newParent.children = [];
+          if (insertIndex !== undefined && insertIndex >= 0 && insertIndex <= newParent.children.length) {
+            newParent.children.splice(insertIndex, 0, itemId);
+          } else {
+            newParent.children.push(itemId);
           }
         }
       }
+
+      // 重新计算排序
+      this.updateItemOrder(data, newParentId);
 
       return await this.saveData(data);
     } catch (error) {
@@ -381,16 +324,63 @@ class FolderTreePersistence {
   }
 
   /**
+   * 重新排序项目
+   */
+  async reorderItems(parentId: string | null, itemIds: string[]): Promise<boolean> {
+    try {
+      const data = await this.loadData();
+
+      // 更新父级的子项目列表
+      if (parentId) {
+        const parent = data.items.find(i => i.id === parentId);
+        if (parent) {
+          parent.children = [...itemIds];
+        }
+      }
+
+      // 更新所有项目的排序字段
+      itemIds.forEach((itemId, index) => {
+        const item = data.items.find(i => i.id === itemId);
+        if (item) {
+          item.order = index;
+        }
+      });
+
+      return await this.saveData(data);
+    } catch (error) {
+      console.error("[Folder Tree] 重新排序项目失败:", error);
+      return false;
+    }
+  }
+
+  /**
    * 获取下一个排序号
    */
-  private getNextOrder(data: FolderTreeData, parentId: string): number {
-    if (parentId.startsWith("notebook_")) {
-      const notebook = data.notebooks.find(nb => nb.id === parentId);
-      if (!notebook) return 0;
-      return notebook.documents.length;
+  private getNextOrder(data: FolderTreeData, parentId: string | null): number {
+    const siblings = data.items.filter(item => item.parentId === parentId);
+    return Math.max(...siblings.map(item => item.order), -1) + 1;
+  }
+
+  /**
+   * 更新项目排序
+   */
+  private updateItemOrder(data: FolderTreeData, parentId: string | null): void {
+    if (parentId) {
+      const parent = data.items.find(item => item.id === parentId);
+      if (parent && parent.children) {
+        parent.children.forEach((childId, index) => {
+          const child = data.items.find(item => item.id === childId);
+          if (child) {
+            child.order = index;
+          }
+        });
+      }
     } else {
-      const siblings = data.documents.filter(doc => doc.parentId === parentId);
-      return Math.max(...siblings.map(doc => doc.order), -1) + 1;
+      // 根级项目排序
+      const rootItems = data.items.filter(item => item.parentId === null);
+      rootItems.sort((a, b) => a.order - b.order).forEach((item, index) => {
+        item.order = index;
+      });
     }
   }
 
@@ -409,4 +399,4 @@ class FolderTreePersistence {
   }
 }
 
-export { FolderTreePersistence, type FolderTreeData, type FolderNotebook, type FolderDocument };
+export { FolderTreePersistence, type FolderTreeData, type FolderItem };

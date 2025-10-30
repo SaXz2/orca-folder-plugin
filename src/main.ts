@@ -73,7 +73,7 @@ function registerBlockMenuCommands() {
           }
 
           // 获取所有笔记本
-          const notebooks = core.getData().notebooks;
+          const notebooks = core.getRootNotebooks();
           if (notebooks.length === 0) {
             orca.notify("error", "请先创建笔记本");
             close();
@@ -114,7 +114,7 @@ function registerBlockMenuCommands() {
             return;
           }
 
-          const notebooks = core.getData().notebooks;
+          const notebooks = core.getRootNotebooks();
           if (notebooks.length === 0) {
             orca.notify("error", "请先创建笔记本");
             close();

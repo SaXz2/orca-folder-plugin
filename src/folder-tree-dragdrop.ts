@@ -143,16 +143,9 @@ class FolderTreeDragDrop {
         orca.notify("success", "文档导入成功");
 
         // 展开目标笔记本/文件夹
-        if (targetId.startsWith("notebook_")) {
-          const expandedNotebooks = this.core.getExpandedNotebooks();
-          if (!expandedNotebooks.includes(targetId)) {
-            await this.core.setExpandedState("notebooks", [...expandedNotebooks, targetId]);
-          }
-        } else {
-          const expandedFolders = this.core.getExpandedFolders();
-          if (!expandedFolders.includes(targetId)) {
-            await this.core.setExpandedState("folders", [...expandedFolders, targetId]);
-          }
+        const expandedItems = this.core.getExpandedItems();
+        if (!expandedItems.includes(targetId)) {
+          await this.core.setExpandedState([...expandedItems, targetId]);
         }
       } else {
         orca.notify("error", "文档导入失败");

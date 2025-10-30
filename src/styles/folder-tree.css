@@ -78,6 +78,29 @@
     background-color: var(--orca-color-gray-7);
 }
 
+/* Notebook 作为拖拽目标的排序/嵌入可视化（与文档条目一致） */
+.folder-tree-notebook-header.drag-insert-before,
+.folder-tree-notebook-header.drag-insert-after {
+    background: transparent !important;
+}
+.folder-tree-notebook-header.drag-embed {
+    background: color-mix(in oklab, var(--orca-color-primary-5) 15%, transparent);
+}
+.folder-tree-notebook-header.drag-insert-before::before,
+.folder-tree-notebook-header.drag-insert-after::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    height: 2px;
+    background: var(--orca-color-primary-5);
+    border-radius: 1px;
+    z-index: 3;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--orca-color-primary-5) 30%, transparent);
+}
+.folder-tree-notebook-header.drag-insert-before::before { top: -1px; }
+.folder-tree-notebook-header.drag-insert-after::after { bottom: -1px; }
+
 .folder-tree-expand-icon {
     width: 14px;
     height: 14px;
