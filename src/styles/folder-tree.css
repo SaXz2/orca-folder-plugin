@@ -79,8 +79,14 @@
 }
 
 .folder-tree-expand-icon {
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: transform 0.25s ease;
     cursor: pointer;
+    margin-right: var(--orca-spacing-xs);
 }
 
 .folder-tree-expand-icon.expanded {

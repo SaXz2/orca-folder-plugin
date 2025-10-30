@@ -273,6 +273,22 @@ class FolderTreeCore {
   }
 
   /**
+   * 确保指定文档为文件夹（若是普通文档则转换为 folder 并初始化 children）
+   */
+  async ensureFolder(documentId: string): Promise<boolean> {
+    if (!this.data) return false;
+    const doc = this.data.documents.find(d => d.id === documentId);
+    if (!doc) return false;
+    if (doc.type !== "folder") {
+      doc.type = "folder";
+      if (!doc.children) doc.children = [];
+      return await this.saveData();
+    }
+    if (!doc.children) doc.children = [];
+    return await this.saveData();
+  }
+
+  /**
    * 更新文档排序
    */
   private updateDocumentOrder(parentId: string): void {
