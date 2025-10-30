@@ -172,6 +172,9 @@
     transition: background-color 0.25s ease;
     cursor: pointer;
     user-select: none;
+    position: relative;
+    /* 增加条目之间的垂直间距，避免拖拽判定同时命中上下两项 */
+    margin: 2px 0;
 }
 
 .folder-tree-item:hover,
@@ -185,8 +188,39 @@
 
 .folder-tree-item.drag-over {
     background: var(--orca-color-primary-2);
-    border-color: var(--orca-color-primary-5);
+    /* 避免边框影响排序指示线的可见性 */
+    border-color: transparent !important;
+    outline: none;
+    box-shadow: none;
 }
+
+/* 当存在前/后插入线时，不显示嵌入高亮背景 */
+.folder-tree-item.drag-insert-before,
+.folder-tree-item.drag-insert-after {
+    background: transparent !important;
+}
+
+/* 中间区域的“嵌入到该项内部”高亮 */
+.folder-tree-item.drag-embed {
+    background: color-mix(in oklab, var(--orca-color-primary-5) 15%, transparent);
+}
+
+/* 排序指示线 - 参考截图效果：在条目顶/底显示一条高亮分隔线 */
+.folder-tree-item.drag-insert-before::before,
+.folder-tree-item.drag-insert-after::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    height: 2px;
+    background: var(--orca-color-primary-5);
+    border-radius: 1px;
+    z-index: 3;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--orca-color-primary-5) 30%, transparent);
+}
+
+.folder-tree-item.drag-insert-before::before { top: -1px; }
+.folder-tree-item.drag-insert-after::after { bottom: -1px; }
 
 .folder-tree-item-icon {
     grid-column: 2;
@@ -261,6 +295,8 @@
     border-radius: 1px;
     opacity: 0;
     transition: opacity 0.2s ease;
+    position: relative;
+    z-index: 2;
 }
 
 .folder-tree-drop-indicator.visible {

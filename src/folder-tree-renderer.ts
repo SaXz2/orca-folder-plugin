@@ -304,23 +304,52 @@ class FolderTreeRenderer {
       }
       
       this.currentDraggedItem = null;
+      (element as any).dataset.insertIntent = '';
     };
 
     element.ondragover = (e) => {
       e.preventDefault();
       e.stopPropagation();
       element.classList.add('drag-over');
+
+      // 扩大判定范围：顶部/底部各占约35%的高度作为排序插入区
+      const rect = element.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const topBand = rect.height * 0.35;
+      const bottomBand = rect.height * 0.65; // 下边界起点
+
+      const isBefore = y <= topBand;
+      const isAfter = y >= bottomBand;
+      const isEmbed = !isBefore && !isAfter;
+
+      element.classList.toggle('drag-insert-before', isBefore);
+      element.classList.toggle('drag-insert-after', isAfter);
+      element.classList.toggle('drag-embed', isEmbed);
+      if (isBefore || isAfter) {
+        (element as any).dataset.insertIntent = isBefore ? 'before' : 'after';
+      } else {
+        (element as any).dataset.insertIntent = '';
+      }
     };
 
     element.ondragleave = () => {
       element.classList.remove('drag-over');
+      element.classList.remove('drag-insert-before');
+      element.classList.remove('drag-insert-after');
+      element.classList.remove('drag-embed');
+      (element as any).dataset.insertIntent = '';
     };
 
     element.ondrop = (e) => {
       e.preventDefault();
       e.stopPropagation();
       element.classList.remove('drag-over');
-      this.handleDrop(e, targetId, targetType);
+      element.classList.remove('drag-insert-before');
+      element.classList.remove('drag-insert-after');
+      element.classList.remove('drag-embed');
+      const intent = ((element as any).dataset.insertIntent || '') as ('before'|'after'|'');
+      (element as any).dataset.insertIntent = '';
+      this.handleDrop(e, targetId, targetType, intent === '' ? undefined : intent);
     };
   }
 
@@ -341,6 +370,8 @@ class FolderTreeRenderer {
     const docEl = window.document.createElement('div');
 
     const isExpanded = this.expandedFolders.has(doc.id);
+    const childrenCount = doc.type === 'folder' ? this.core.getDocumentChildren(doc.id).length : 0;
+    const hasChildren = doc.type === 'folder' && childrenCount > 0;
     const isSelected = this.selectedItems.has(doc.id);
 
     const itemEl = window.document.createElement('div');
@@ -348,7 +379,7 @@ class FolderTreeRenderer {
     itemEl.setAttribute('data-id', doc.id);
 
     // 构建 HTML 字符串
-    const expandIcon = doc.type === 'folder'
+    const expandIcon = (doc.type === 'folder' && hasChildren)
       ? `<i class="ti ti-chevron-right folder-tree-expand-icon ${isExpanded ? 'expanded' : ''}"></i>`
       : '<span style="width: 14px; display: inline-block;"></span>';
 
@@ -404,21 +435,23 @@ class FolderTreeRenderer {
 
   private setupDocumentEvents(itemEl: HTMLElement, document: any): void {
     if (document.type === 'folder') {
-      const expandIcon = itemEl.querySelector('.folder-tree-expand-icon') as HTMLElement;
-      expandIcon.onclick = (e) => {
-        e.stopPropagation();
-        this.toggleFolder(document.id);
-        this.selectItem(document.id);
-      };
-
-      // 中键点击：仅切换展开/折叠
-      itemEl.addEventListener('auxclick', (e: MouseEvent) => {
-        if (e.button === 1) {
-          e.preventDefault();
+      const expandIcon = itemEl.querySelector('.folder-tree-expand-icon') as HTMLElement | null;
+      if (expandIcon) {
+        expandIcon.onclick = (e) => {
           e.stopPropagation();
           this.toggleFolder(document.id);
-        }
-      });
+          this.selectItem(document.id);
+        };
+
+        // 中键点击：仅切换展开/折叠
+        itemEl.addEventListener('auxclick', (e: MouseEvent) => {
+          if (e.button === 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleFolder(document.id);
+          }
+        });
+      }
     }
 
     itemEl.onclick = () => {
@@ -461,6 +494,52 @@ class FolderTreeRenderer {
   private createChildrenElement(parentId: string, level: number): HTMLElement {
     const childrenEl = document.createElement('div');
     childrenEl.className = 'folder-tree-items';
+    childrenEl.setAttribute('data-parent-id', parentId);
+
+    // 允许把文档拖到该父级的空白区域，以便“提升/移动到上一级”
+    childrenEl.ondragover = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try { e.dataTransfer!.dropEffect = 'move'; } catch {}
+    };
+
+    childrenEl.ondrop = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dataText = e.dataTransfer!.getData('text/plain');
+      if (!dataText) {
+        // 支持从 Orca 拖入块到该父级
+        if (this.currentDraggedBlockId) {
+          await this.createDocumentFromBlock(this.currentDraggedBlockId, parentId);
+          this.currentDraggedBlockId = null;
+        }
+        return;
+      }
+      // 文档拖入到该父级（用于从子文件夹拖回上一级）
+      if (dataText.startsWith('document_')) {
+        const draggedDoc = this.core.getDocumentById(dataText);
+        if (draggedDoc && draggedDoc.parentId !== parentId) {
+          const ok = await this.core.moveDocument(dataText, parentId);
+          if (ok) {
+            (window as any).orca.notify('success', '移动成功');
+            // 若目标父级是 folder/notebook，确保其展开
+            if (parentId.startsWith('notebook_')) {
+              if (!this.expandedNotebooks.has(parentId)) this.expandedNotebooks.add(parentId);
+            } else {
+              if (!this.expandedFolders.has(parentId)) this.expandedFolders.add(parentId);
+            }
+            // 局部刷新当前父级的子列表
+            const wrapper = childrenEl.parentElement as HTMLElement;
+            const existing = wrapper.querySelector(':scope > .folder-tree-items');
+            if (existing) existing.remove();
+            const fresh = this.createChildrenElement(parentId, level);
+            wrapper.appendChild(fresh);
+          } else {
+            (window as any).orca.notify('error', '移动失败');
+          }
+        }
+      }
+    };
 
     const children = this.core.getDocumentChildren(parentId);
     children.forEach(child => {
@@ -685,7 +764,12 @@ class FolderTreeRenderer {
     }
   }
 
-  private async handleDrop(e: DragEvent, targetId: string, targetType: string): Promise<void> {
+  private async handleDrop(
+    e: DragEvent,
+    targetId: string,
+    targetType: string,
+    insertIntent?: 'before' | 'after'
+  ): Promise<void> {
     // 优先使用捕获的块ID
     let draggedId = this.currentDraggedBlockId || e.dataTransfer!.getData('text/plain');
     if (!draggedId || draggedId === targetId) return;
@@ -721,12 +805,47 @@ class FolderTreeRenderer {
     
     if (draggedDoc) {
       const targetDoc = this.core.getDocumentById(targetId);
+      // 读取指示线意图（优先采用 setupDragDrop 计算的 insertIntent）
+      const dropTargetEl = (e.target as HTMLElement)?.closest('.folder-tree-item') as HTMLElement | null;
+      const wantInsertBefore = insertIntent ? insertIntent === 'before' : (!!dropTargetEl && dropTargetEl.classList.contains('drag-insert-before'));
+      const wantInsertAfter  = insertIntent ? insertIntent === 'after'  : (!!dropTargetEl && dropTargetEl.classList.contains('drag-insert-after'));
 
-      if (targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId && targetType !== 'document') {
-        // 同级排序 - 使用共同的父级
+      // 如果明确显示了插入指示线，则优先进行“排序/插入到同级前后”的逻辑
+      if (wantInsertBefore || wantInsertAfter) {
+        const targetParentId = targetDoc ? (targetDoc.parentId || '') : '';
+        // 如果不同父级，则先移动到目标父级
+        if (targetParentId && draggedDoc.parentId !== targetParentId) {
+          const moved = await this.core.moveDocument(draggedId, targetParentId);
+          if (!moved) {
+            (window as any).orca.notify('error', '移动失败');
+            return;
+          }
+        }
+        // 再在同级排序：以 targetId 作为参照
+        const parentForOrder = targetDoc?.parentId || draggedDoc.parentId;
+        if (parentForOrder) {
+          const success = await this.reorderDocuments(draggedId, targetId, parentForOrder);
+          if (success) {
+            (window as any).orca.notify('success', '文档排序成功');
+            this.render();
+          } else {
+            (window as any).orca.notify('error', '文档排序失败');
+          }
+        }
+      } else if (targetType === 'folder' || (targetDoc && targetDoc.type === 'folder')) {
+        const success = await this.core.moveDocument(draggedId, targetId);
+        if (success) {
+          (window as any).orca.notify('success', '移动成功');
+          this.render();
+        } else {
+          (window as any).orca.notify('error', '移动失败');
+        }
+      } else if (targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId) {
+        // 否则仅在同级文档之间进行排序
         const success = await this.reorderDocuments(draggedId, targetId, draggedDoc.parentId);
         if (success) {
           (window as any).orca.notify('success', '文档排序成功');
+          this.render();
         } else {
           (window as any).orca.notify('error', '文档排序失败');
         }
@@ -738,6 +857,7 @@ class FolderTreeRenderer {
         const success = await this.core.moveDocument(draggedId, targetId);
         if (success) {
           (window as any).orca.notify('success', '移动成功');
+          this.render();
         } else {
           (window as any).orca.notify('error', '移动失败');
         }
