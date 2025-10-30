@@ -225,12 +225,15 @@ class FolderTreePersistence {
     try {
       const data = await this.loadData();
 
+      // 允许根级：当 parentId === 'root' 时存为根（parentId=null）
+      const isRoot = parentId === 'root';
+
       const document: FolderDocument = {
         id: this.generateId("document"),
         name,
         blockId,
-        parentId,
-        order: this.getNextOrder(data, parentId),
+        parentId: isRoot ? null : parentId,
+        order: this.getNextOrder(data, isRoot ? 'root' as any : parentId),
         type,
         children: type === "folder" ? [] : undefined,
         icon,
@@ -242,7 +245,9 @@ class FolderTreePersistence {
       data.documents.push(document);
 
       // 更新父级的children列表
-      if (parentId.startsWith("notebook_")) {
+      if (isRoot) {
+        // 根级无需维护引用列表
+      } else if (parentId.startsWith("notebook_")) {
         const notebook = data.notebooks.find(nb => nb.id === parentId);
         if (notebook) {
           notebook.documents.push(document.id);
