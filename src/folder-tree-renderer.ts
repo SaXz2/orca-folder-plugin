@@ -491,6 +491,19 @@ class FolderTreeRenderer {
     this.setupDragDrop(itemEl, document.id, document.type);
   }
 
+  // 判断 ancestorId 是否为 nodeId 的祖先（沿 parentId 向上检查）
+  private isAncestor(ancestorId: string, nodeId: string): boolean {
+    if (ancestorId === nodeId) return true;
+    let current: any = this.core.getDocumentById(nodeId);
+    const visited = new Set<string>();
+    while (current && current.parentId && !visited.has(current.parentId)) {
+      if (current.parentId === ancestorId) return true;
+      visited.add(current.parentId);
+      current = this.core.getDocumentById(current.parentId);
+    }
+    return false;
+  }
+
   private createChildrenElement(parentId: string, level: number): HTMLElement {
     const childrenEl = document.createElement('div');
     childrenEl.className = 'folder-tree-items';
@@ -813,6 +826,11 @@ class FolderTreeRenderer {
       // 如果明确显示了插入指示线，则优先进行“排序/插入到同级前后”的逻辑
       if (wantInsertBefore || wantInsertAfter) {
         const targetParentId = targetDoc ? (targetDoc.parentId || '') : '';
+        // 防止把父文件夹移动到其后代的父级下，造成循环
+        if (targetParentId && this.isAncestor(draggedId, targetParentId)) {
+          (window as any).orca.notify('error', '不能移动到自身的子项中');
+          return;
+        }
         // 如果不同父级，则先移动到目标父级
         if (targetParentId && draggedDoc.parentId !== targetParentId) {
           const moved = await this.core.moveDocument(draggedId, targetParentId);
@@ -833,6 +851,11 @@ class FolderTreeRenderer {
           }
         }
       } else if (targetType === 'folder' || (targetDoc && targetDoc.type === 'folder')) {
+        // 防止把父文件夹移动到其后代中
+        if (this.isAncestor(draggedId, targetId)) {
+          (window as any).orca.notify('error', '不能移动到自身的子项中');
+          return;
+        }
         const success = await this.core.moveDocument(draggedId, targetId);
         if (success) {
           (window as any).orca.notify('success', '移动成功');
@@ -853,6 +876,11 @@ class FolderTreeRenderer {
         // 移动到不同父级；若目标为文档，先转换目标为文件夹
         if (targetType === 'document') {
           await this.core.ensureFolder(targetId);
+        }
+        // 防止把父文件夹移动到其后代中
+        if (this.isAncestor(draggedId, targetId)) {
+          (window as any).orca.notify('error', '不能移动到自身的子项中');
+          return;
         }
         const success = await this.core.moveDocument(draggedId, targetId);
         if (success) {
