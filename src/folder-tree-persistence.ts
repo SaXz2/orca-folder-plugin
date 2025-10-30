@@ -27,10 +27,6 @@ interface FolderNotebook {
 interface FolderTreeData {
   notebooks: FolderNotebook[];
   documents: FolderDocument[];
-  backup: {
-    lastBackup: string;
-    version: string;
-  };
   settings: {
     expandedNotebooks: string[];
     expandedFolders: string[];
@@ -49,10 +45,6 @@ class FolderTreePersistence {
     return {
       notebooks: [],
       documents: [],
-      backup: {
-        lastBackup: new Date().toISOString(),
-        version: this.DATA_VERSION,
-      },
       settings: {
         expandedNotebooks: [],
         expandedFolders: [],
@@ -83,12 +75,7 @@ class FolderTreePersistence {
       const data = JSON.parse(dataStr) as FolderTreeData;
 
       // 数据迁移和兼容性处理
-      if (!data.backup) {
-        data.backup = {
-          lastBackup: new Date().toISOString(),
-          version: this.DATA_VERSION,
-        };
-      }
+      // 移除了备份相关字段
 
       if (!data.settings) {
         data.settings = {
@@ -112,7 +99,6 @@ class FolderTreePersistence {
     try {
       // 更新修改时间
       const now = new Date().toISOString();
-      data.backup.lastBackup = now;
 
       // 更新笔记本和文档的修改时间
       data.notebooks.forEach(notebook => {
@@ -412,70 +398,6 @@ class FolderTreePersistence {
       return await this.saveData(data);
     } catch (error) {
       console.error("[Folder Tree] 保存设置失败:", error);
-      return false;
-    }
-  }
-
-  /**
-   * 备份数据
-   */
-  async backupData(): Promise<boolean> {
-    try {
-      const data = await this.loadData();
-      const backupData = {
-        ...data,
-        exportTime: new Date().toISOString(),
-        version: this.DATA_VERSION,
-      };
-
-      const backupStr = JSON.stringify(backupData, null, 2);
-      await orca.plugins.setData(this.PLUGIN_KEY, "backup", backupStr);
-
-      orca.notify("success", "文档树数据备份成功");
-      return true;
-    } catch (error) {
-      console.error("[Folder Tree] 备份数据失败:", error);
-      orca.notify("error", "文档树数据备份失败");
-      return false;
-    }
-  }
-
-  /**
-   * 恢复数据
-   */
-  async restoreData(): Promise<boolean> {
-    try {
-      const backupStr = await orca.plugins.getData(this.PLUGIN_KEY, "backup");
-      if (!backupStr) {
-        orca.notify("warn", "没有找到备份数据");
-        return false;
-      }
-
-      const backupData = JSON.parse(backupStr);
-      await this.saveData(backupData);
-
-      orca.notify("success", "文档树数据恢复成功");
-      return true;
-    } catch (error) {
-      console.error("[Folder Tree] 恢复数据失败:", error);
-      orca.notify("error", "文档树数据恢复失败");
-      return false;
-    }
-  }
-
-  /**
-   * 清除所有数据
-   */
-  async clearAllData(): Promise<boolean> {
-    try {
-      await orca.plugins.setData(this.PLUGIN_KEY, "data", JSON.stringify(this.getDefaultData()));
-      await orca.plugins.removeData(this.PLUGIN_KEY, "backup");
-
-      orca.notify("success", "文档树数据已清除");
-      return true;
-    } catch (error) {
-      console.error("[Folder Tree] 清除数据失败:", error);
-      orca.notify("error", "文档树数据清除失败");
       return false;
     }
   }

@@ -342,46 +342,8 @@ class FolderTreeCore {
     return this.data?.settings.selectedItems || [];
   }
 
-  // ========== 备份操作 ==========
-
-  /**
-   * 备份数据
-   */
-  async backupData(): Promise<boolean> {
-    const success = await this.persistence.backupData();
-    if (success && this.data) {
-      // 更新备份时间
-      this.data.backup.lastBackup = new Date().toISOString();
-      await this.saveData();
-    }
-    return success;
-  }
-
-  /**
-   * 恢复数据
-   */
-  async restoreData(): Promise<boolean> {
-    const success = await this.persistence.restoreData();
-    if (success) {
-      // 重新加载数据
-      this.data = await this.persistence.loadData();
-      this.notifyDataChange();
-    }
-    return success;
-  }
-
-  /**
-   * 清除所有数据
-   */
-  async clearAllData(): Promise<boolean> {
-    const success = await this.persistence.clearAllData();
-    if (success) {
-      this.data = await this.persistence.loadData();
-      this.notifyDataChange();
-    }
-    return success;
-  }
-
+  
+  
   // ========== 工具方法 ==========
 
   /**

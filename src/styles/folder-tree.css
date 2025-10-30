@@ -141,7 +141,7 @@
 
 /* 嵌套内容区域 */
 .folder-tree-items {
-    padding-left: 16px;
+    padding-left: 4px;
     margin: 1px 0;
     position: relative;
 }

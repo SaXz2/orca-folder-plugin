@@ -18,9 +18,55 @@ class FolderTreeRenderer {
   private expandedNotebooks: Set<string> = new Set();
   private expandedFolders: Set<string> = new Set();
   private selectedItems: Set<string> = new Set();
+  private currentDraggedBlockId: string | null = null;
 
   constructor(core: FolderTreeCore) {
     this.core = core;
+    this.setupGlobalDragListener();
+  }
+
+  /**
+   * 设置全局拖拽监听器，捕获从 Orca 块拖拽的事件
+   */
+  private setupGlobalDragListener(): void {
+    document.addEventListener('dragstart', (e) => {
+      const target = e.target as HTMLElement;
+      
+      // 检查是否是拖拽块的手柄
+      if (target.classList.contains('orca-block-handle') || target.closest('.orca-block-handle')) {
+        const handleElement = target.classList.contains('orca-block-handle') 
+          ? target 
+          : target.closest('.orca-block-handle');
+        
+        if (handleElement) {
+          // 查找父元素 .orca-block.orca-container
+          let blockContainer = handleElement.parentElement;
+          
+          while (blockContainer && !blockContainer.classList.contains('orca-block')) {
+            blockContainer = blockContainer.parentElement;
+          }
+          
+          if (blockContainer && blockContainer.classList.contains('orca-container')) {
+            const blockId = blockContainer.getAttribute('data-id');
+            
+            if (blockId && /^\d+$/.test(blockId)) {
+              console.log('[Folder Tree] Captured dragging block ID:', blockId);
+              this.currentDraggedBlockId = blockId;
+              
+              // 设置拖拽数据
+              if (e.dataTransfer) {
+                e.dataTransfer.setData('text/plain', blockId);
+              }
+            }
+          }
+        }
+      }
+    }, true);
+
+    // 拖拽结束时清除
+    document.addEventListener('dragend', () => {
+      this.currentDraggedBlockId = null;
+    }, true);
   }
 
   async initialize(container: HTMLElement): Promise<void> {
@@ -66,15 +112,9 @@ class FolderTreeRenderer {
 
     const createBtn = this.createButton('创建笔记本', this.createPlusIcon(), () => this.showCreateNotebookInput());
     const createFolderBtn = this.createButton('新建文件夹', this.createFolderIcon(), () => this.showCreateFolderInput());
-    const backupBtn = this.createButton('备份数据', this.createBackupIcon(), () => this.handleBackup());
-    const restoreBtn = this.createButton('恢复数据', this.createRestoreIcon(), () => this.handleRestore());
-    const clearBtn = this.createButton('清除数据', this.createClearIcon(), () => this.handleClearData());
 
     actions.appendChild(createBtn);
     actions.appendChild(createFolderBtn);
-    actions.appendChild(backupBtn);
-    actions.appendChild(restoreBtn);
-    actions.appendChild(clearBtn);
 
     header.appendChild(title);
     header.appendChild(actions);
@@ -94,22 +134,12 @@ class FolderTreeRenderer {
     return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>';
   }
 
-  private createBackupIcon(): string {
-    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
-  }
-
-  private createRestoreIcon(): string {
-    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
-  }
-
+  
   private createFolderIcon(): string {
     return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6M9 14h6"/></svg>';
   }
 
-  private createClearIcon(): string {
-    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
-  }
-
+  
   private createContent(): HTMLElement {
     const content = document.createElement('div');
     content.className = 'folder-tree-content';
@@ -299,7 +329,6 @@ class FolderTreeRenderer {
 
     const itemEl = window.document.createElement('div');
     itemEl.className = `folder-tree-item ${isSelected ? 'selected' : ''}`;
-    itemEl.style.paddingLeft = `${level * 16 + 12}px`;
 
     // 构建 HTML 字符串
     const expandIcon = doc.type === 'folder'
@@ -414,6 +443,8 @@ class FolderTreeRenderer {
     this.selectedItems.clear();
     this.selectedItems.add(itemId);
     await this.core.setSelectedItems(Array.from(this.selectedItems));
+    // 立即重新渲染UI以更新选中状态
+    this.render();
   }
 
   private showCreateNotebookInput(): void {
@@ -548,8 +579,11 @@ class FolderTreeRenderer {
   }
 
   private async handleDrop(e: DragEvent, targetId: string, targetType: string): Promise<void> {
-    const draggedId = e.dataTransfer!.getData('text/plain');
+    // 优先使用捕获的块ID
+    let draggedId = this.currentDraggedBlockId || e.dataTransfer!.getData('text/plain');
     if (!draggedId || draggedId === targetId) return;
+
+    console.log('[Folder Tree] handleDrop - draggedId:', draggedId, 'targetId:', targetId, 'targetType:', targetType);
 
     // 处理笔记本排序
     if (targetType === 'notebook' && draggedId.startsWith('notebook_')) {
@@ -559,18 +593,25 @@ class FolderTreeRenderer {
       } else {
         (window as any).orca.notify('error', '笔记本排序失败');
       }
+      this.currentDraggedBlockId = null;
       return;
     }
 
-    // 处理文档移动
-    if (draggedId.startsWith('block_')) {
+    // 检查是否是从 Orca 拖拽的块（纯数字ID）
+    if (/^\d+$/.test(draggedId)) {
+      console.log('[Folder Tree] Creating document from Orca block:', draggedId);
       await this.createDocumentFromBlock(draggedId, targetId);
-    } else {
-      // 检查是否是文档排序（在相同父级内）
-      const draggedDoc = this.core.getDocumentById(draggedId);
+      this.currentDraggedBlockId = null;
+      return;
+    }
+
+    // 检查是否是文档ID（document_开头）
+    const draggedDoc = this.core.getDocumentById(draggedId);
+    
+    if (draggedDoc) {
       const targetDoc = this.core.getDocumentById(targetId);
 
-      if (draggedDoc && targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId) {
+      if (targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId) {
         // 同级排序 - 使用共同的父级
         const success = await this.reorderDocuments(draggedId, targetId, draggedDoc.parentId);
         if (success) {
@@ -587,124 +628,60 @@ class FolderTreeRenderer {
           (window as any).orca.notify('error', '移动失败');
         }
       }
+    } else {
+      console.warn('[Folder Tree] Unknown dragged item:', draggedId);
+      (window as any).orca.notify('warning', '无法识别拖拽的项目');
     }
+    
+    this.currentDraggedBlockId = null;
   }
 
   private async handleOrcaDrop(e: DragEvent): Promise<void> {
     try {
-      console.log('Handle Orca drop called', e);
+      console.log('[Folder Tree] Handle Orca drop called');
 
-      // 获取拖拽数据
+      // 检查是否有笔记本
+      if (this.data.notebooks.length === 0) {
+        (window as any).orca.notify('warning', '请先创建笔记本');
+        return;
+      }
+
+      // 方法1：优先使用全局监听器捕获的块ID
+      if (this.currentDraggedBlockId) {
+        console.log('[Folder Tree] Using captured block ID:', this.currentDraggedBlockId);
+        await this.createDocumentFromBlock(this.currentDraggedBlockId, this.data.notebooks[0].id);
+        this.currentDraggedBlockId = null;
+        return;
+      }
+
+      // 方法2：从 dataTransfer 获取块ID
       const dataText = e.dataTransfer!.getData('text/plain');
-      console.log('Drag data:', dataText);
+      console.log('[Folder Tree] Drag data from dataTransfer:', dataText);
 
-      if (dataText && dataText.startsWith('block_')) {
-        // 如果是标准块数据
-        if (this.data.notebooks.length === 0) {
-          (window as any).orca.notify('warning', '请先创建笔记本');
-          return;
-        }
+      if (dataText && /^\d+$/.test(dataText)) {
+        // 如果是纯数字的块ID
+        console.log('[Folder Tree] Found block ID from dataTransfer:', dataText);
         await this.createDocumentFromBlock(dataText, this.data.notebooks[0].id);
         return;
       }
 
-      // 尝试从orca.state.blocks获取当前选中的块
-      try {
-        // 获取当前活动的面板中的块
-        const activePanel = (window as any).orca.state.activePanel;
-        console.log('Active panel:', activePanel);
-
-        // 尝试从拖拽目标获取正确的块ID
-        // 方法1：检查拖拽事件的目标元素
-        if (e.target) {
-          const draggedElement = e.target as Element;
-
-          // 查找包含块ID的属性
-          const possibleBlockId =
-            draggedElement.getAttribute('data-block-id') ||
-            draggedElement.getAttribute('data-id') ||
-            draggedElement.getAttribute('id');
-
-          if (possibleBlockId && possibleBlockId !== '7205') { // 排除面板ID
-            console.log('Found block ID from drag target:', possibleBlockId);
-            if (this.data.notebooks.length > 0) {
-              await this.createDocumentFromBlock(possibleBlockId, this.data.notebooks[0].id);
-              return;
-            }
-          }
-
-          // 向上查找父元素中的块ID
-          let parentElement = draggedElement.parentElement;
-          while (parentElement) {
-            const parentBlockId =
-              parentElement.getAttribute('data-block-id') ||
-              parentElement.getAttribute('data-id') ||
-              parentElement.getAttribute('id');
-
-            if (parentBlockId && parentBlockId !== '7205' && parentBlockId.length > 10) {
-              console.log('Found block ID from parent:', parentBlockId);
-              if (this.data.notebooks.length > 0) {
-                await this.createDocumentFromBlock(parentBlockId, this.data.notebooks[0].id);
-                return;
-              }
-            }
-            parentElement = parentElement.parentElement;
-          }
-        }
-
-        // 方法2：尝试从当前选择中获取块ID
-        try {
-          const selection = window.getSelection();
-          if (selection && selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            let container = range.startContainer;
-
-            // 如果是文本节点，获取其父元素
-            if (container.nodeType === Node.TEXT_NODE && container.parentElement) {
-              container = container.parentElement;
-            }
-
-            if (container) {
-              // 查找块ID的各种可能属性
-              const element = container as Element;
-              const blockId =
-                element.getAttribute('data-block-id') ||
-                element.getAttribute('data-id') ||
-                element.getAttribute('id') ||
-                element.getAttribute('data-uuid');
-
-              if (blockId && blockId !== '7205' && blockId.length > 10) {
-                console.log('Found block ID from selection:', blockId);
-                if (this.data.notebooks.length > 0) {
-                  await this.createDocumentFromBlock(blockId, this.data.notebooks[0].id);
-                  return;
-                }
-              }
-            }
-          }
-        } catch (selectionError) {
-          console.log('Selection method failed:', selectionError);
-        }
-
-        // 备用方法：从orca.state.blocks中获取第一个块作为示例
-        const blocks = (window as any).orca.state.blocks;
-        const firstBlockId = Object.keys(blocks)[0];
-
-        if (firstBlockId && this.data.notebooks.length > 0) {
-          console.log('Using first available block:', firstBlockId);
-          await this.createDocumentFromBlock(firstBlockId, this.data.notebooks[0].id);
+      // 方法3：从当前选中的块获取ID
+      const selectedBlocks = document.querySelectorAll('.orca-block.orca-container.orca-selected');
+      if (selectedBlocks.length > 0) {
+        const blockId = selectedBlocks[0].getAttribute('data-id');
+        if (blockId && /^\d+$/.test(blockId)) {
+          console.log('[Folder Tree] Found block ID from selected block:', blockId);
+          await this.createDocumentFromBlock(blockId, this.data.notebooks[0].id);
           return;
         }
-
-      } catch (blockError) {
-        console.log('Failed to get block from state:', blockError);
       }
 
       // 如果都没有获取到，显示提示
-      (window as any).orca.notify('info', '请在Orca中选中一个块，然后拖拽到文档树');
+      console.log('[Folder Tree] No block ID found');
+      (window as any).orca.notify('info', '请拖拽块的拖拽手柄（左侧图标）到文档树');
 
     } catch (error) {
-      console.error('Handle Orca drop error:', error);
+      console.error('[Folder Tree] Handle Orca drop error:', error);
       (window as any).orca.notify('error', '拖拽处理失败');
     }
   }
@@ -750,29 +727,8 @@ class FolderTreeRenderer {
     }
   }
 
-  private async handleBackup(): Promise<void> {
-    const success = await this.core.backupData();
-    if (success) {
-      (window as any).orca.notify('success', '数据备份成功');
-    }
-  }
-
-  private async handleRestore(): Promise<void> {
-    const success = await this.core.restoreData();
-    if (success) {
-      (window as any).orca.notify('success', '数据恢复成功');
-    }
-  }
-
-  private async handleClearData(): Promise<void> {
-    if (confirm('确定要清除所有文档树数据吗？此操作不可恢复！')) {
-      const success = await this.core.clearAllData();
-      if (success) {
-        (window as any).orca.notify('success', '数据已清除');
-      }
-    }
-  }
-
+  
+  
   private createInputDialog(title: string, label: string, defaultValue: string): any {
     const dialog = document.createElement('div') as any;
     dialog.style.cssText = `
