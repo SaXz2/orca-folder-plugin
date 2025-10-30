@@ -19,6 +19,7 @@ class FolderTreeRenderer {
   private expandedFolders: Set<string> = new Set();
   private selectedItems: Set<string> = new Set();
   private currentDraggedBlockId: string | null = null;
+  private currentDraggedItem: { id: string; type: string } | null = null;
 
   constructor(core: FolderTreeCore) {
     this.core = core;
@@ -88,37 +89,26 @@ class FolderTreeRenderer {
     this.data = this.core.getData();
     this.container.innerHTML = '';
 
-    const header = this.createHeader();
-    this.container.appendChild(header);
-
     const content = this.createContent();
     this.container.appendChild(content);
+
+    const footer = this.createFooter();
+    this.container.appendChild(footer);
   }
 
   update(): void {
     this.render();
   }
 
-  private createHeader(): HTMLElement {
-    const header = document.createElement('div');
-    header.className = 'folder-tree-header';
-
-    const title = document.createElement('div');
-    title.className = 'folder-tree-title';
-    title.textContent = '文档树';
-
+  private createFooter(): HTMLElement {
     const actions = document.createElement('div');
     actions.className = 'folder-tree-actions';
 
     const createBtn = this.createButton('创建笔记本', this.createPlusIcon(), () => this.showCreateNotebookInput());
-    const createFolderBtn = this.createButton('新建文件夹', this.createFolderIcon(), () => this.showCreateFolderInput());
 
     actions.appendChild(createBtn);
-    actions.appendChild(createFolderBtn);
 
-    header.appendChild(title);
-    header.appendChild(actions);
-    return header;
+    return actions;
   }
 
   private createButton(title: string, svg: string, onClick: () => void): HTMLButtonElement {
@@ -187,29 +177,14 @@ class FolderTreeRenderer {
     const header = document.createElement('div');
     header.className = `folder-tree-notebook-header ${isSelected ? 'active' : ''}`;
     header.innerHTML = `
-      <span class="folder-tree-expand-icon ${isExpanded ? 'expanded' : ''}">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="9 18 15 12 9 6"/>
-        </svg>
-      </span>
+      <i class="ti ti-chevron-right folder-tree-expand-icon ${isExpanded ? 'expanded' : ''}"></i>
       <span class="folder-tree-notebook-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-        </svg>
+        <i class="ti ti-notebook"></i>
       </span>
       <span class="folder-tree-notebook-name">${this.escapeHtml(notebook.name)}</span>
       <div class="folder-tree-notebook-actions">
         <button class="folder-tree-btn" title="重命名">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </button>
-        <button class="folder-tree-btn" title="删除">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-          </svg>
+          <i class="ti ti-pencil"></i>
         </button>
       </div>
     `;
@@ -237,17 +212,20 @@ class FolderTreeRenderer {
       this.selectItem(notebook.id);
     };
 
-    const renameBtn = header.querySelector('.folder-tree-notebook-actions button:first-child') as HTMLElement;
-    renameBtn.onclick = (e) => {
+    // 添加右键菜单
+    header.oncontextmenu = (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      this.renameNotebook(notebook.id);
+      this.showContextMenu(e, notebook.id, 'notebook');
     };
 
-    const deleteBtn = header.querySelector('.folder-tree-notebook-actions button:last-child') as HTMLElement;
-    deleteBtn.onclick = (e) => {
-      e.stopPropagation();
-      this.deleteNotebook(notebook.id);
-    };
+    const renameBtn = header.querySelector('.folder-tree-notebook-actions button') as HTMLElement;
+    if (renameBtn) {
+      renameBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.renameNotebook(notebook.id);
+      };
+    }
 
     this.setupDragDrop(header, notebook.id, 'notebook');
   }
@@ -288,6 +266,32 @@ class FolderTreeRenderer {
     element.ondragstart = (e) => {
       e.dataTransfer!.setData('text/plain', targetId);
       e.dataTransfer!.effectAllowed = 'move';
+      element.classList.add('dragging');
+      
+      // 记录当前拖拽的项目
+      this.currentDraggedItem = { id: targetId, type: targetType };
+    };
+
+    element.ondragend = async (e) => {
+      element.classList.remove('dragging');
+      
+      // 检查是否拖出了容器
+      if (this.currentDraggedItem && targetType !== 'notebook') {
+        const containerRect = this.container?.getBoundingClientRect();
+        if (containerRect) {
+          const isOutside = e.clientX < containerRect.left || 
+                           e.clientX > containerRect.right || 
+                           e.clientY < containerRect.top || 
+                           e.clientY > containerRect.bottom;
+          
+          if (isOutside) {
+            // 拖出容器，删除该文档
+            await this.deleteDocument(targetId);
+          }
+        }
+      }
+      
+      this.currentDraggedItem = null;
     };
 
     element.ondragover = (e) => {
@@ -332,29 +336,42 @@ class FolderTreeRenderer {
 
     // 构建 HTML 字符串
     const expandIcon = doc.type === 'folder'
-      ? `<span class="folder-tree-expand-icon ${isExpanded ? 'expanded' : ''}">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        </span>`
-      : '<span style="width: 12px; display: inline-block;"></span>';
+      ? `<i class="ti ti-chevron-right folder-tree-expand-icon ${isExpanded ? 'expanded' : ''}"></i>`
+      : '<span style="width: 16px; display: inline-block;"></span>';
 
-    const icon = doc.type === 'folder'
-      ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          ${isExpanded ? '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>' : '<path d="M3 3h18v18H3zM8 12h8M12 8v8"/>'}
-        </svg>`
-      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+    // 根据类型和保存的图标信息生成图标
+    let iconHtml: string;
+    if (doc.type === 'folder') {
+      // 文件夹使用 Tabler Icons
+      iconHtml = `<i class="ti ti-folder"></i>`;
+    } else if (doc.icon) {
+      // 判断是 emoji 还是图标类名
+      if (doc.icon.startsWith('ti ')) {
+        // Tabler Icons - 完整类名
+        iconHtml = `<i class="${doc.icon}"></i>`;
+      } else {
+        // Emoji 或其他文本
+        iconHtml = doc.icon;
+      }
+    } else {
+      // 默认使用立方体图标
+      iconHtml = `<i class="ti ti-cube"></i>`;
+    }
+
+    // 处理自定义颜色
+    const iconBgStyle = doc.color ? ` style="background-color: oklch(from ${doc.color} calc(1.2 * l) c h / 25%);"` : '';
+    
+    if (doc.color || doc.icon) {
+      console.log('[Folder Tree] 渲染 - 图标:', doc.icon, '颜色:', doc.color, '文档:', doc.name);
+    }
 
     const html = [
       expandIcon,
-      `<span class="folder-tree-item-icon">${icon}</span>`,
+      `<span class="folder-tree-item-icon"${iconBgStyle}>${iconHtml}</span>`,
       '<span class="folder-tree-item-name">' + this.escapeHtml(doc.name) + '</span>',
       '<div class="folder-tree-item-actions">',
       '<button class="folder-tree-btn" title="重命名">' +
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
-      '</button>',
-      '<button class="folder-tree-btn" title="删除">' +
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
+        '<i class="ti ti-pencil"></i>' +
       '</button>',
       '</div>'
     ];
@@ -389,17 +406,20 @@ class FolderTreeRenderer {
       }
     };
 
-    const renameBtn = itemEl.querySelector('.folder-tree-item-actions button:first-child') as HTMLElement;
-    renameBtn.onclick = (e) => {
+    // 添加右键菜单
+    itemEl.oncontextmenu = (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      this.renameDocument(document.id);
+      this.showContextMenu(e, document.id, document.type);
     };
 
-    const deleteBtn = itemEl.querySelector('.folder-tree-item-actions button:last-child') as HTMLElement;
-    deleteBtn.onclick = (e) => {
-      e.stopPropagation();
-      this.deleteDocument(document.id);
-    };
+    const renameBtn = itemEl.querySelector('.folder-tree-item-actions button') as HTMLElement;
+    if (renameBtn) {
+      renameBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.renameDocument(document.id);
+      };
+    }
 
     this.setupDragDrop(itemEl, document.id, document.type);
   }
@@ -474,22 +494,24 @@ class FolderTreeRenderer {
       return;
     }
 
-    // 如果有多个笔记本，让用户选择
+    // 如果只有一个笔记本，直接在该笔记本中创建
     if (this.data.notebooks.length === 1) {
       this.showCreateFolderInNotebook(this.data.notebooks[0]);
-    } else {
-      // 显示笔记本选择对话框
-      const notebookOptions = this.data.notebooks.map((nb: any) => nb.name).join('\n');
-      const dialog = this.createInputDialog('选择笔记本', `请在哪个笔记本中创建文件夹？\n\n${notebookOptions}`, this.data.notebooks[0].name);
-      dialog.show((notebookName: string) => {
-        const notebook = this.data.notebooks.find((nb: any) => nb.name === notebookName);
-        if (notebook) {
-          this.showCreateFolderInNotebook(notebook);
-        } else {
-          (window as any).orca.notify('error', '未找到指定的笔记本');
-        }
-      });
+      return;
     }
+
+    // 如果有选中的笔记本，在选中的笔记本中创建
+    const selectedNotebook = Array.from(this.selectedItems)
+      .map(id => this.core.getNotebookById(id))
+      .find(nb => nb !== null);
+    
+    if (selectedNotebook) {
+      this.showCreateFolderInNotebook(selectedNotebook);
+      return;
+    }
+
+    // 默认在第一个笔记本中创建
+    this.showCreateFolderInNotebook(this.data.notebooks[0]);
   }
 
   private showCreateFolderInNotebook(notebook: any): void {
@@ -505,8 +527,16 @@ class FolderTreeRenderer {
     const folder = await this.core.createDocument(name, null, notebookId, 'folder');
     if (folder) {
       (window as any).orca.notify('success', '文件夹创建成功');
+      // 确保笔记本展开
+      if (!this.expandedNotebooks.has(notebookId)) {
+        this.expandedNotebooks.add(notebookId);
+        await this.core.setExpandedState('notebooks', Array.from(this.expandedNotebooks));
+      }
+      // 展开新创建的文件夹
       this.expandedFolders.add(folder.id);
       await this.core.setExpandedState('folders', Array.from(this.expandedFolders));
+      // 立即重新渲染UI
+      this.render();
     } else {
       (window as any).orca.notify('error', '文件夹创建失败');
     }
@@ -568,13 +598,12 @@ class FolderTreeRenderer {
     const document = this.core.getDocumentById(documentId);
     if (!document) return;
 
-    if (confirm(`确定要删除${document.type === 'folder' ? '文件夹' : '文档'}"${document.name}"吗？`)) {
-      const success = await this.core.deleteDocument(documentId);
-      if (success) {
-        (window as any).orca.notify('success', '删除成功');
-      } else {
-        (window as any).orca.notify('error', '删除失败');
-      }
+    // 直接删除，不提示
+    const success = await this.core.deleteDocument(documentId);
+    if (success) {
+      (window as any).orca.notify('success', '删除成功');
+    } else {
+      (window as any).orca.notify('error', '删除失败');
     }
   }
 
@@ -698,7 +727,36 @@ class FolderTreeRenderer {
         ? (block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text)
         : '未命名文档';
 
-      const document = await this.core.createDocument(blockName, blockId, targetId, 'document');
+      // 获取块的图标和颜色
+      let iconClass = 'ti ti-cube'; // 默认
+      let color = '';
+      
+      // 获取自定义属性
+      const iconProp = this.findProperty(block, '_icon');
+      const colorProp = this.findProperty(block, '_color');
+      
+      // 读取颜色
+      if (colorProp && colorProp.type === 1) {
+        color = colorProp.value;
+        console.log('[Folder Tree] 读取到颜色:', color, '块ID:', blockId);
+      }
+      
+      // 读取图标
+      if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
+        iconClass = iconProp.value;
+        console.log('[Folder Tree] 读取到自定义图标:', iconClass, '块ID:', blockId);
+      } else if (block.aliases && block.aliases.length > 0) {
+        // 别名块：判断是页面还是标签
+        const hideProp = this.findProperty(block, '_hide');
+        iconClass = hideProp && hideProp.value ? 'ti ti-file' : 'ti ti-hash';
+        console.log('[Folder Tree] 别名块图标:', iconClass, 'hasHide:', !!hideProp, '块ID:', blockId);
+      } else {
+        // 普通块，默认立方体图标
+        console.log('[Folder Tree] 普通块，使用默认图标:', iconClass, '块ID:', blockId);
+      }
+
+      console.log('[Folder Tree] 最终保存 - 图标:', iconClass, '颜色:', color, '块ID:', blockId);
+      const document = await this.core.createDocument(blockName, blockId, targetId, 'document', iconClass, color);
       if (document) {
         (window as any).orca.notify('success', '文档导入成功');
 
@@ -786,6 +844,11 @@ class FolderTreeRenderer {
       margin-bottom: 16px;
       box-sizing: border-box;
     `;
+    
+    // 阻止事件冒泡，确保输入框可以正常接收输入
+    input.onclick = (e) => e.stopPropagation();
+    input.onmousedown = (e) => e.stopPropagation();
+    input.onmouseup = (e) => e.stopPropagation();
 
     const buttonContainer = document.createElement('div');
     buttonContainer.style.cssText = `
@@ -836,8 +899,13 @@ class FolderTreeRenderer {
       }
     };
 
-    // 自动聚焦输入框
-    setTimeout(() => input.focus(), 100);
+    // 自动聚焦输入框并选中文本
+    setTimeout(() => {
+      input.focus();
+      if (defaultValue) {
+        input.select();
+      }
+    }, 150);
 
     buttonContainer.appendChild(cancelBtn);
     buttonContainer.appendChild(confirmBtn);
@@ -855,6 +923,9 @@ class FolderTreeRenderer {
         document.body.removeChild(dialog);
       }
     };
+    
+    // 阻止内容区域的点击事件冒泡到背景
+    content.onclick = (e: MouseEvent) => e.stopPropagation();
 
     return {
       show: (callback: (value: string) => void) => {
@@ -868,6 +939,13 @@ class FolderTreeRenderer {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  private findProperty(block: any, propertyName: string): any {
+    if (!block.properties || !Array.isArray(block.properties)) {
+      return null;
+    }
+    return block.properties.find((prop: any) => prop.name === propertyName);
   }
 
   private getDocumentParent(documentId: string): string | null {
@@ -955,6 +1033,125 @@ class FolderTreeRenderer {
     } catch (error) {
       console.error('文档排序失败:', error);
       return false;
+    }
+  }
+
+  /**
+   * 显示右键菜单
+   */
+  private showContextMenu(e: MouseEvent, itemId: string, itemType: 'notebook' | 'folder' | 'document'): void {
+    // 移除已存在的菜单
+    const existingMenu = document.querySelector('.folder-tree-context-menu');
+    if (existingMenu) {
+      existingMenu.remove();
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'folder-tree-context-menu';
+    menu.style.position = 'fixed';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    menu.style.zIndex = '10000';
+
+    const menuItems: Array<{ label: string; icon: string; action: () => void; className?: string }> = [];
+
+    // 笔记本和文件夹可以创建子文件夹
+    if (itemType === 'notebook' || itemType === 'folder') {
+      menuItems.push({
+        label: '新建文件夹',
+        icon: '📂',
+        action: () => {
+          if (itemType === 'notebook') {
+            const notebook = this.core.getNotebookById(itemId);
+            if (notebook) {
+              this.showCreateFolderInNotebook(notebook);
+            }
+          } else {
+            // 在文件夹中创建子文件夹
+            const dialog = this.createInputDialog('新建文件夹', '请输入文件夹名称:', '');
+            dialog.show(async (name: string) => {
+              if (name && name.trim()) {
+                const folder = await this.core.createDocument(name.trim(), null, itemId, 'folder');
+                if (folder) {
+                  (window as any).orca.notify('success', '文件夹创建成功');
+                  // 展开父文件夹
+                  if (!this.expandedFolders.has(itemId)) {
+                    this.expandedFolders.add(itemId);
+                    await this.core.setExpandedState('folders', Array.from(this.expandedFolders));
+                  }
+                  // 展开新创建的文件夹
+                  this.expandedFolders.add(folder.id);
+                  await this.core.setExpandedState('folders', Array.from(this.expandedFolders));
+                  this.render();
+                } else {
+                  (window as any).orca.notify('error', '文件夹创建失败');
+                }
+              }
+            });
+          }
+        }
+      });
+    }
+
+    // 重命名选项
+    menuItems.push({
+      label: '重命名',
+      icon: '✏️',
+      action: () => {
+        if (itemType === 'notebook') {
+          this.renameNotebook(itemId);
+        } else {
+          this.renameDocument(itemId);
+        }
+      }
+    });
+
+    // 删除选项
+    menuItems.push({
+      label: '删除',
+      icon: '🗑️',
+      action: () => {
+        if (itemType === 'notebook') {
+          this.deleteNotebook(itemId);
+        } else {
+          this.deleteDocument(itemId);
+        }
+      },
+      className: 'danger'
+    });
+
+    // 创建菜单项
+    menuItems.forEach(item => {
+      const menuItem = document.createElement('div');
+      menuItem.className = `folder-tree-context-menu-item ${item.className || ''}`;
+      menuItem.innerHTML = `${item.icon} ${item.label}`;
+      menuItem.onclick = () => {
+        item.action();
+        menu.remove();
+      };
+      menu.appendChild(menuItem);
+    });
+
+    document.body.appendChild(menu);
+
+    // 点击其他地方关闭菜单
+    const closeMenu = (event: MouseEvent) => {
+      if (!menu.contains(event.target as Node)) {
+        menu.remove();
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', closeMenu);
+    }, 0);
+
+    // 确保菜单不会超出屏幕
+    const menuRect = menu.getBoundingClientRect();
+    if (menuRect.right > window.innerWidth) {
+      menu.style.left = `${window.innerWidth - menuRect.width - 10}px`;
+    }
+    if (menuRect.bottom > window.innerHeight) {
+      menu.style.top = `${window.innerHeight - menuRect.height - 10}px`;
     }
   }
 }

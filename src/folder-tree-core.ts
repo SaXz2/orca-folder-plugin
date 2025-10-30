@@ -158,9 +158,11 @@ class FolderTreeCore {
     name: string,
     blockId: string | null,
     parentId: string,
-    type: "document" | "folder" = "document"
+    type: "document" | "folder" = "document",
+    icon?: string,
+    color?: string
   ): Promise<FolderDocument | null> {
-    const document = await this.persistence.createDocument(name, blockId, parentId, type);
+    const document = await this.persistence.createDocument(name, blockId, parentId, type, icon, color);
     if (document && this.data) {
       // 重新加载完整数据以保持同步
       this.data = await this.persistence.loadData();

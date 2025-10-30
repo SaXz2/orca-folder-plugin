@@ -11,6 +11,8 @@ interface FolderDocument {
   order: number;
   type: "document" | "folder";
   children?: string[];
+  icon?: string;
+  color?: string;
   created: string;
   modified: string;
 }
@@ -216,7 +218,9 @@ class FolderTreePersistence {
     name: string,
     blockId: string | null,
     parentId: string,
-    type: "document" | "folder" = "document"
+    type: "document" | "folder" = "document",
+    icon?: string,
+    color?: string
   ): Promise<FolderDocument | null> {
     try {
       const data = await this.loadData();
@@ -229,6 +233,8 @@ class FolderTreePersistence {
         order: this.getNextOrder(data, parentId),
         type,
         children: type === "folder" ? [] : undefined,
+        icon,
+        color,
         created: new Date().toISOString(),
         modified: new Date().toISOString(),
       };

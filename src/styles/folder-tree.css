@@ -6,6 +6,7 @@
     flex-direction: column;
     height: 100%;
     background: transparent;
+    padding: 0 var(--orca-spacing-md);
 }
 
 /* 文档树内容区域 */
@@ -16,36 +17,19 @@
     height: auto;
     overflow-y: auto;
     flex: 1;
-    font-family: var(--orca-fontfamily-code);
+    font-family: var(--orca-fontfamily-ui);
     font-size: 14px;
     line-height: 1.4;
 }
 
-/* 文档树头部 - 简洁 */
-.folder-tree-header {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--orca-color-border-2);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    min-height: 32px;
-    gap: 8px;
-    margin-bottom: 4px;
-    background: var(--orca-color-bg-2);
-}
-
-.folder-tree-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--orca-color-text-1);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.7;
-}
-
+/* 操作按钮容器 - 底部 */
 .folder-tree-actions {
     display: flex;
     gap: 4px;
+    padding: var(--orca-spacing-sm) var(--orca-spacing-md);
+    justify-content: flex-end;
+    border-top: 1px solid var(--orca-color-separator);
+    margin-top: auto;
 }
 
 /* 按钮样式 - 简约 */
@@ -70,69 +54,82 @@
     color: var(--orca-color-text-1);
 }
 
-.folder-tree-btn svg {
-    width: 14px;
-    height: 14px;
-}
-
-/* 笔记本/文件夹样式 - Obsidian风格 */
+/* 笔记本样式 - 完全参考 orca-fav-item 设计 */
 .folder-tree-notebook {
-    margin: 1px 0;
+    margin: 0;
 }
 
 .folder-tree-notebook-header {
-    padding: 3px 6px;
-    display: flex;
+    display: grid;
+    grid-template-columns: calc(14px + var(--orca-spacing-xs)) auto 1fr auto;
     align-items: center;
-    gap: 6px;
+    border: 1px dashed transparent;
+    border-radius: var(--orca-radius-sm);
+    line-height: 1.8571428571;
+    padding: var(--orca-spacing-xs) 0;
+    transition: background-color 0.25s ease;
     cursor: pointer;
-    transition: all 0.15s ease;
     user-select: none;
-    border-radius: 3px;
-    min-height: 22px;
+    font-weight: bold;
 }
 
-.folder-tree-notebook-header:hover {
-    background: var(--orca-color-fill-1);
-}
-
+.folder-tree-notebook-header:hover,
 .folder-tree-notebook-header.active {
-    background: var(--orca-color-primary-1);
-    color: var(--orca-color-primary-6);
+    background-color: var(--orca-color-gray-7);
+}
+
+.folder-tree-expand-icon {
+    transition: transform 0.25s ease;
+    cursor: pointer;
+}
+
+.folder-tree-expand-icon.expanded {
+    transform: rotate(90deg);
 }
 
 .folder-tree-notebook-icon {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: var(--orca-color-text-2);
-    opacity: 0.8;
+    grid-column: 2;
+    width: 22px;
+    aspect-ratio: 1;
+    margin-right: var(--orca-spacing-sm);
+    text-align: center;
+    line-height: 22px;
+    border-radius: var(--orca-radius-md);
+    font-size: var(--orca-fontsize-md);
+    font-family: var(--orca-fontfamily-ui);
+    background-color: var(--orca-color-gray-7);
+    transition: background-color 0.25s ease, box-shadow 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
+.folder-tree-notebook-header:hover .folder-tree-notebook-icon {
+    background-color: var(--orca-color-gray-6);
+    box-shadow: 0 2px 4px #0000000d;
+    animation: shakeAndScale 0.25s ease-in-out;
+}
+
+/* 笔记本选中（聚焦）图标样式，与悬停一致 */
 .folder-tree-notebook-header.active .folder-tree-notebook-icon {
-    color: var(--orca-color-primary-6);
+    background-color: var(--orca-color-gray-6);
+    box-shadow: 0 2px 4px #0000000d;
 }
 
 .folder-tree-notebook-name {
-    flex: 1;
-    font-size: 14px;
+    font-size: var(--orca-fontsize-sm);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--orca-color-text-1);
-    font-weight: 400;
-}
-
-.folder-tree-notebook-header.active .folder-tree-notebook-name {
-    color: var(--orca-color-primary-6);
-    font-weight: 500;
+    padding: 0 var(--orca-spacing-xs);
 }
 
 .folder-tree-notebook-actions {
     display: flex;
-    gap: 2px;
+    gap: var(--orca-spacing-xs);
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity 0.25s ease;
+    padding-right: var(--orca-spacing-xs);
 }
 
 .folder-tree-notebook-header:hover .folder-tree-notebook-actions {
@@ -157,28 +154,23 @@
     opacity: 0.3;
 }
 
-/* 文档/文件夹项目样式 - 统一文件列表风格 */
+/* 文档/文件夹项目样式 - 完全参考 orca-fav-item 设计 */
 .folder-tree-item {
-    padding: 3px 6px;
-    display: flex;
+    display: grid;
+    grid-template-columns: calc(14px + var(--orca-spacing-xs)) auto 1fr auto;
     align-items: center;
-    gap: 6px;
+    border: 1px dashed transparent;
+    border-radius: var(--orca-radius-sm);
+    line-height: 1.8571428571;
+    padding: var(--orca-spacing-xs) 0;
+    transition: background-color 0.25s ease;
     cursor: pointer;
-    transition: all 0.15s ease;
     user-select: none;
-    border-radius: 3px;
-    min-height: 22px;
-    position: relative;
-    margin: 1px 0;
 }
 
-.folder-tree-item:hover {
-    background: var(--orca-color-fill-1);
-}
-
+.folder-tree-item:hover,
 .folder-tree-item.selected {
-    background: var(--orca-color-primary-1);
-    color: var(--orca-color-primary-6);
+    background-color: var(--orca-color-gray-7);
 }
 
 .folder-tree-item.dragging {
@@ -187,98 +179,56 @@
 
 .folder-tree-item.drag-over {
     background: var(--orca-color-primary-2);
-    border: 1px dashed var(--orca-color-primary-5);
+    border-color: var(--orca-color-primary-5);
 }
 
 .folder-tree-item-icon {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: var(--orca-color-text-2);
-    opacity: 0.8;
+    grid-column: 2;
+    width: 22px;
+    aspect-ratio: 1;
+    margin-right: var(--orca-spacing-sm);
+    text-align: center;
+    line-height: 22px;
+    border-radius: var(--orca-radius-md);
+    font-size: var(--orca-fontsize-2xs);
+    font-family: var(--orca-fontfamily-ui);
+    background-color: var(--orca-color-gray-7);
+    transition: background-color 0.25s ease, box-shadow 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
+.folder-tree-item:hover .folder-tree-item-icon {
+    background-color: var(--orca-color-gray-6);
+    box-shadow: 0 2px 4px #0000000d;
+    animation: shakeAndScale 0.25s ease-in-out;
+}
+
+/* 条目选中（聚焦）图标样式，与悬停一致 */
 .folder-tree-item.selected .folder-tree-item-icon {
-    color: var(--orca-color-primary-6);
+    background-color: var(--orca-color-gray-6);
+    box-shadow: 0 2px 4px #0000000d;
 }
 
 .folder-tree-item-name {
-    flex: 1;
-    font-size: 14px;
+    font-size: var(--orca-fontsize-sm);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--orca-color-text-1);
-    font-weight: 400;
-}
-
-.folder-tree-item.selected .folder-tree-item-name {
-    color: var(--orca-color-primary-6);
-    font-weight: 500;
+    padding: 0 var(--orca-spacing-xs);
 }
 
 .folder-tree-item-actions {
     display: flex;
-    gap: 2px;
+    gap: var(--orca-spacing-xs);
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity 0.25s ease;
+    padding-right: var(--orca-spacing-xs);
 }
 
 .folder-tree-item:hover .folder-tree-item-actions {
     opacity: 1;
-}
-
-/* 展开/收起图标 - 简约设计 */
-.folder-tree-expand-icon {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    transition: transform 0.15s ease;
-    cursor: pointer;
-    color: var(--orca-color-text-2);
-    opacity: 0.6;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.folder-tree-expand-icon:hover {
-    opacity: 1;
-    color: var(--orca-color-text-1);
-}
-
-.folder-tree-expand-icon.expanded {
-    transform: rotate(90deg);
-}
-
-.folder-tree-item:hover .folder-tree-expand-icon {
-    opacity: 1;
-}
-
-/* 展开/收起图标 - 使用Orca原生样式 */
-.folder-tree-expand-icon {
-    width: 12px;
-    height: 12px;
-    flex-shrink: 0;
-    transition: transform var(--orca-transition-base);
-    cursor: pointer;
-    color: var(--orca-color-text-3);
-    opacity: var(--orca-opacity-disabled);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: bold;
-}
-
-.folder-tree-expand-icon:hover {
-    opacity: 1;
-    color: var(--orca-color-text-2);
-}
-
-.folder-tree-expand-icon.expanded {
-    transform: rotate(90deg);
-    color: var(--orca-color-primary-5);
 }
 
 /* 拖拽提示 - 使用Orca主题色 */
@@ -312,37 +262,42 @@
     color: var(--orca-color-text-3);
 }
 
-/* 右键菜单 - 使用Orca样式 */
+/* 右键菜单 - 使用 Orca 原生样式 */
 .folder-tree-context-menu {
     position: fixed;
     background: var(--orca-color-bg-1);
-    border: 1px solid var(--orca-color-border-2);
+    border: var(--orca-border-general);
     border-radius: var(--orca-radius-md);
-    padding: 4px 0;
-    box-shadow: var(--orca-shadow-md);
-    z-index: 1000;
-    min-width: 120px;
+    padding: var(--orca-spacing-xs) 0;
+    box-shadow: var(--orca-shadow-menu);
+    z-index: 10000;
+    min-width: 160px;
+    font-family: var(--orca-fontfamily-ui);
 }
 
 .folder-tree-context-menu-item {
-    padding: 8px 12px;
-    font-size: 12px;
+    padding: var(--orca-spacing-sm) var(--orca-spacing-md);
+    font-size: var(--orca-fontsize-sm);
     cursor: pointer;
     color: var(--orca-color-text-1);
-    transition: all 0.2s ease;
-    font-family: var(--orca-fontfamily-code);
+    transition: background-color var(--orca-transition-base, 0.15s ease);
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: var(--orca-spacing-sm);
+    line-height: var(--orca-lineheight-sm);
 }
 
 .folder-tree-context-menu-item:hover {
-    background: var(--orca-color-fill-1);
+    background-color: var(--orca-color-gray-7);
 }
 
 .folder-tree-context-menu-item.danger {
-    color: var(--orca-color-danger-5);
+    color: var(--orca-color-dangerous-5);
 }
 
 .folder-tree-context-menu-item.danger:hover {
-    background: var(--orca-color-danger-2);
+    background: color-mix(in oklab, var(--orca-color-dangerous-5) 10%, transparent);
 }
 
 /* 自定义对话框 - 使用Orca样式 */
