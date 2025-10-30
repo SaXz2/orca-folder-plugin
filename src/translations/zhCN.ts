@@ -1,3 +1,32 @@
-const zhCN = {};
+const zhCN = {
+  "your plugin code starts here": "您的插件代码从此开始",
+  "folder tree": "文档树",
+  "notebook created successfully": "笔记本创建成功",
+  "notebook creation failed": "笔记本创建失败",
+  "document imported successfully": "文档导入成功",
+  "document import failed": "文档导入失败",
+  "data backup successful": "数据备份成功",
+  "data restore successful": "数据恢复成功",
+  "data cleared": "数据已清除",
+  "plugin loaded successfully": "插件加载成功",
+  "plugin unloaded": "插件已卸载",
+  "failed to get block information": "无法获取块信息",
+  "unnamed document": "未命名文档",
+  "create notebook": "创建笔记本",
+  "backup data": "备份数据",
+  "restore data": "恢复数据",
+  "clear data": "清除数据",
+  "document tree manager": "文档树管理器",
+  "no notebooks": "暂无笔记本",
+  "drag blocks here or click the + button above to create": "拖拽块到此处或点击上方 + 按钮创建",
+  "rename": "重命名",
+  "delete": "删除",
+  "confirm delete notebook": "确定要删除笔记本 \"{name}\" 吗？此操作将删除该笔记本下的所有文档。",
+  "confirm delete document": "确定要删除{type} \"{name}\" 吗？",
+  "document": "文档",
+  "folder": "文件夹",
+  "confirm clear all data": "确定要清除所有文档树数据吗？此操作不可恢复！",
+  "notebook name": "笔记本名称",
+};
 
 export default zhCN;

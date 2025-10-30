@@ -21,7 +21,7 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": [
-    "src"
+    "src/**/*.ts"
   ],
   "references": [
     {

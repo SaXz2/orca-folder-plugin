@@ -1,0 +1,472 @@
+/* 文档树插件 - Obsidian风格 */
+
+/* 文档树容器 */
+.plugin-folder-tree-container.orca-favorites-list {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: transparent;
+}
+
+/* 文档树内容区域 */
+.plugin-folder-tree-content.orca-favorites-items {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+    height: auto;
+    overflow-y: auto;
+    flex: 1;
+    font-family: var(--orca-fontfamily-code);
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+/* 文档树头部 - 简洁 */
+.folder-tree-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--orca-color-border-2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 32px;
+    gap: 8px;
+    margin-bottom: 4px;
+    background: var(--orca-color-bg-2);
+}
+
+.folder-tree-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--orca-color-text-1);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.7;
+}
+
+.folder-tree-actions {
+    display: flex;
+    gap: 4px;
+}
+
+/* 按钮样式 - 简约 */
+.folder-tree-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--orca-color-text-3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    opacity: 0.6;
+}
+
+.folder-tree-btn:hover {
+    opacity: 1;
+    background: var(--orca-color-fill-1);
+    color: var(--orca-color-text-1);
+}
+
+.folder-tree-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* 笔记本/文件夹样式 - Obsidian风格 */
+.folder-tree-notebook {
+    margin: 1px 0;
+}
+
+.folder-tree-notebook-header {
+    padding: 3px 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    border-radius: 3px;
+    min-height: 22px;
+}
+
+.folder-tree-notebook-header:hover {
+    background: var(--orca-color-fill-1);
+}
+
+.folder-tree-notebook-header.active {
+    background: var(--orca-color-primary-1);
+    color: var(--orca-color-primary-6);
+}
+
+.folder-tree-notebook-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--orca-color-text-2);
+    opacity: 0.8;
+}
+
+.folder-tree-notebook-header.active .folder-tree-notebook-icon {
+    color: var(--orca-color-primary-6);
+}
+
+.folder-tree-notebook-name {
+    flex: 1;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--orca-color-text-1);
+    font-weight: 400;
+}
+
+.folder-tree-notebook-header.active .folder-tree-notebook-name {
+    color: var(--orca-color-primary-6);
+    font-weight: 500;
+}
+
+.folder-tree-notebook-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.folder-tree-notebook-header:hover .folder-tree-notebook-actions {
+    opacity: 1;
+}
+
+/* 嵌套内容区域 */
+.folder-tree-items {
+    padding-left: 16px;
+    margin: 1px 0;
+    position: relative;
+}
+
+.folder-tree-items::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--orca-color-border-1);
+    opacity: 0.3;
+}
+
+/* 文档/文件夹项目样式 - 统一文件列表风格 */
+.folder-tree-item {
+    padding: 3px 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    border-radius: 3px;
+    min-height: 22px;
+    position: relative;
+    margin: 1px 0;
+}
+
+.folder-tree-item:hover {
+    background: var(--orca-color-fill-1);
+}
+
+.folder-tree-item.selected {
+    background: var(--orca-color-primary-1);
+    color: var(--orca-color-primary-6);
+}
+
+.folder-tree-item.dragging {
+    opacity: 0.5;
+}
+
+.folder-tree-item.drag-over {
+    background: var(--orca-color-primary-2);
+    border: 1px dashed var(--orca-color-primary-5);
+}
+
+.folder-tree-item-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--orca-color-text-2);
+    opacity: 0.8;
+}
+
+.folder-tree-item.selected .folder-tree-item-icon {
+    color: var(--orca-color-primary-6);
+}
+
+.folder-tree-item-name {
+    flex: 1;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--orca-color-text-1);
+    font-weight: 400;
+}
+
+.folder-tree-item.selected .folder-tree-item-name {
+    color: var(--orca-color-primary-6);
+    font-weight: 500;
+}
+
+.folder-tree-item-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.folder-tree-item:hover .folder-tree-item-actions {
+    opacity: 1;
+}
+
+/* 展开/收起图标 - 简约设计 */
+.folder-tree-expand-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+    cursor: pointer;
+    color: var(--orca-color-text-2);
+    opacity: 0.6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.folder-tree-expand-icon:hover {
+    opacity: 1;
+    color: var(--orca-color-text-1);
+}
+
+.folder-tree-expand-icon.expanded {
+    transform: rotate(90deg);
+}
+
+.folder-tree-item:hover .folder-tree-expand-icon {
+    opacity: 1;
+}
+
+/* 展开/收起图标 - 使用Orca原生样式 */
+.folder-tree-expand-icon {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    transition: transform var(--orca-transition-base);
+    cursor: pointer;
+    color: var(--orca-color-text-3);
+    opacity: var(--orca-opacity-disabled);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.folder-tree-expand-icon:hover {
+    opacity: 1;
+    color: var(--orca-color-text-2);
+}
+
+.folder-tree-expand-icon.expanded {
+    transform: rotate(90deg);
+    color: var(--orca-color-primary-5);
+}
+
+/* 拖拽提示 - 使用Orca主题色 */
+.folder-tree-drop-indicator {
+    height: 2px;
+    background: var(--orca-color-primary-5);
+    margin: 2px 8px;
+    border-radius: 1px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.folder-tree-drop-indicator.visible {
+    opacity: 1;
+}
+
+/* 空状态 */
+.folder-tree-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--orca-color-text-3);
+    font-size: 12px;
+    font-family: var(--orca-fontfamily-code);
+}
+
+.folder-tree-empty-icon {
+    width: 24px;
+    height: 24px;
+    margin: 0 auto 8px;
+    opacity: 0.4;
+    color: var(--orca-color-text-3);
+}
+
+/* 右键菜单 - 使用Orca样式 */
+.folder-tree-context-menu {
+    position: fixed;
+    background: var(--orca-color-bg-1);
+    border: 1px solid var(--orca-color-border-2);
+    border-radius: var(--orca-radius-md);
+    padding: 4px 0;
+    box-shadow: var(--orca-shadow-md);
+    z-index: 1000;
+    min-width: 120px;
+}
+
+.folder-tree-context-menu-item {
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--orca-color-text-1);
+    transition: all 0.2s ease;
+    font-family: var(--orca-fontfamily-code);
+}
+
+.folder-tree-context-menu-item:hover {
+    background: var(--orca-color-fill-1);
+}
+
+.folder-tree-context-menu-item.danger {
+    color: var(--orca-color-danger-5);
+}
+
+.folder-tree-context-menu-item.danger:hover {
+    background: var(--orca-color-danger-2);
+}
+
+/* 自定义对话框 - 使用Orca样式 */
+.folder-tree-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.folder-tree-dialog {
+    background: var(--orca-color-bg-1);
+    border: 1px solid var(--orca-color-border-2);
+    border-radius: var(--orca-radius-lg);
+    padding: 20px;
+    min-width: 300px;
+    max-width: 400px;
+    box-shadow: var(--orca-shadow-lg);
+}
+
+.folder-tree-dialog-title {
+    font-size: 14px;
+    font-weight: var(--orca-fontweight-lg);
+    margin-bottom: 16px;
+    color: var(--orca-color-text-1);
+    font-family: var(--orca-fontfamily-code);
+}
+
+.folder-tree-dialog-label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 8px;
+    color: var(--orca-color-text-2);
+    font-family: var(--orca-fontfamily-code);
+}
+
+.folder-tree-dialog-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--orca-color-border-2);
+    border-radius: var(--orca-radius-sm);
+    font-size: 12px;
+    background: var(--orca-color-bg-1);
+    color: var(--orca-color-text-1);
+    font-family: var(--orca-fontfamily-code);
+}
+
+.folder-tree-dialog-input:focus {
+    outline: none;
+    border-color: var(--orca-color-primary-5);
+    box-shadow: 0 0 0 2px var(--orca-color-primary-2);
+}
+
+.folder-tree-dialog-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.folder-tree-dialog-button {
+    padding: 6px 12px;
+    border: 1px solid var(--orca-color-border-2);
+    border-radius: var(--orca-radius-sm);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: var(--orca-fontfamily-code);
+}
+
+.folder-tree-dialog-button.primary {
+    background: var(--orca-color-primary-5);
+    color: white;
+    border-color: var(--orca-color-primary-5);
+}
+
+.folder-tree-dialog-button.primary:hover {
+    background: var(--orca-color-primary-6);
+}
+
+.folder-tree-dialog-button.secondary {
+    background: var(--orca-color-bg-1);
+    color: var(--orca-color-text-1);
+}
+
+.folder-tree-dialog-button.secondary:hover {
+    background: var(--orca-color-fill-1);
+}
+
+/* 滚动条样式 - 使用Orca样式 */
+.plugin-folder-tree-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.plugin-folder-tree-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.plugin-folder-tree-content::-webkit-scrollbar-thumb {
+    background: var(--orca-color-border-2);
+    border-radius: 3px;
+}
+
+.plugin-folder-tree-content::-webkit-scrollbar-thumb:hover {
+    background: var(--orca-color-text-3);
+}
+
+/* 侧边选项栏激活样式 - 参考tabsman样式 */
+.orca-sidebar-tab-options.plugin-folder-tree-selected
+>.orca-segmented-item:not(.plugin-folder-tree-tab-option){
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.orca-sidebar-tab-options:not(.plugin-folder-tree-selected)~.orca-sidebar-tabs .orca-hideable:first-child{
+    display: none;
+}
+
+.orca-sidebar-tab-options.plugin-folder-tree-selected~.orca-sidebar-tabs .orca-hideable:not(:first-child){
+    display: none;
+}
