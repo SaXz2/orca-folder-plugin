@@ -840,7 +840,7 @@ class FolderTreeRenderer {
         } else {
           (window as any).orca.notify('error', '移动失败');
         }
-      } else if (targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId) {
+      } else if ((wantInsertBefore || wantInsertAfter) && targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId) {
         // 否则仅在同级文档之间进行排序
         const success = await this.reorderDocuments(draggedId, targetId, draggedDoc.parentId);
         if (success) {
