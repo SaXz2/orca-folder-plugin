@@ -238,7 +238,7 @@ class FolderTreePersistence {
         if (item.parentId) {
           const parent = data.items.find(i => i.id === item.parentId);
           if (parent && parent.children) {
-            parent.children = parent.children.filter(id => id !== id);
+            parent.children = parent.children.filter(childId => childId !== id);
           }
         }
 

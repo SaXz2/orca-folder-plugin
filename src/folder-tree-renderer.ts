@@ -103,10 +103,8 @@ class FolderTreeRenderer {
     actions.className = 'folder-tree-actions';
 
     const createNotebookBtn = this.createButton('创建笔记本', this.createNotebookIcon(), () => this.showCreateNotebookInput());
-    const createDocBtn = this.createButton('创建根级文档', this.createDocumentIcon(), () => this.showCreateRootDocumentInput());
 
     actions.appendChild(createNotebookBtn);
-    actions.appendChild(createDocBtn);
 
     return actions;
   }
@@ -377,44 +375,55 @@ class FolderTreeRenderer {
       e.dataTransfer!.dropEffect = 'copy';
     };
 
-    content.ondrop = async (e) => {
-      e.preventDefault();
-
-      // 获取拖拽数据
-      const draggedData = e.dataTransfer!.getData('text/plain');
-
-      if (!draggedData) {
-        // 尝试从Orca获取拖拽数据，创建根级文档
-        console.log('[Folder Tree] Creating root-level document from Orca block');
-        if (this.currentDraggedBlockId) {
-          await this.createDocumentFromBlock(this.currentDraggedBlockId, null);
-          this.currentDraggedBlockId = null;
-        } else {
-          // 从 handleOrcaDrop 备份逻辑
-          const dataText = e.dataTransfer!.getData('text/plain');
-          if (dataText && /^\d+$/.test(dataText)) {
-            await this.createDocumentFromBlock(dataText, null);
-          } else {
-        this.handleOrcaDrop(e);
-          }
-        }
+    // 使用捕获阶段处理，允许拖到根级空白区域创建根级文档
+    content.addEventListener('drop', async (e) => {
+      const target = e.target as HTMLElement;
+      
+      // 检查是否真的拖到了根级空白区域（不是任何项目或子区域）
+      const clickedOnItem = target.closest('.folder-tree-item');
+      const clickedOnChildrenArea = target.closest('.folder-tree-items');
+      
+      // 如果拖到了具体项目或子区域，不处理（让子元素处理）
+      if (clickedOnItem || clickedOnChildrenArea) {
         return;
       }
 
-      // 如果有笔记本，则拖拽到第一个笔记本
-      const notebooks = this.core.getRootNotebooks();
-      if (notebooks.length > 0) {
-        const firstNotebook = notebooks[0];
-        this.handleDrop(e, firstNotebook.id, 'notebook');
-      } else {
-        // 没有笔记本时，创建根级文档
-        if (/^\d+$/.test(draggedData)) {
-          await this.createDocumentFromBlock(draggedData, null);
-        } else {
-          (window as any).orca.notify('info', '可以创建笔记本或拖拽到空白处创建根级文档');
+      // 确认拖到的是 content 区域内的空白区域
+      if (!content.contains(target) && target !== content) {
+        return;
+      }
+
+      // 获取拖拽数据
+      const draggedData = e.dataTransfer!.getData('text/plain');
+      const blockId = this.currentDraggedBlockId || (draggedData && /^\d+$/.test(draggedData) ? draggedData : null);
+      
+      // 如果从编辑区拖拽块到根级空白区域，创建根级文档
+      if (blockId && /^\d+$/.test(blockId)) {
+        e.preventDefault();
+        e.stopPropagation(); // 阻止子元素处理
+        console.log('[Folder Tree] Dropping block to root level, creating root document:', blockId);
+        await this.createDocumentFromBlock(blockId, null);
+        this.currentDraggedBlockId = null;
+        return;
+      }
+
+      // 如果是文档ID（document_ 开头），允许移动到根级（用于提升文档层级）
+      if (draggedData && (draggedData.startsWith('document_') || draggedData.startsWith('folder_'))) {
+        const draggedDoc = this.core.getDocumentById(draggedData);
+        if (draggedDoc && draggedDoc.parentId !== null) {
+          e.preventDefault();
+          e.stopPropagation(); // 阻止子元素处理
+          const success = await this.core.moveItem(draggedData, null);
+          if (success) {
+            (window as any).orca.notify('success', '移动到根级成功');
+            this.render();
+          } else {
+            (window as any).orca.notify('error', '移动失败');
+          }
+          return;
         }
       }
-    };
+    }, true); // 使用捕获阶段
 
     // 添加右键菜单支持在根级别创建文档
     content.oncontextmenu = (e) => {
@@ -918,15 +927,6 @@ class FolderTreeRenderer {
     });
   }
 
-  private showCreateRootDocumentInput(): void {
-    const dialog = this.createInputDialog('创建根级文档', '请输入文档名称:', '');
-    dialog.show(async (name: string) => {
-      if (name && name.trim()) {
-        await this.createRootDocument(name.trim());
-      }
-    });
-  }
-
   private async createNotebook(name: string): Promise<void> {
     const notebook = await this.core.createNotebook(name);
     if (notebook) {
@@ -935,18 +935,6 @@ class FolderTreeRenderer {
       await this.core.setExpandedState(Array.from(this.expandedItems));
     } else {
       (window as any).orca.notify('error', '笔记本创建失败');
-    }
-  }
-
-  private async createRootDocument(name: string): Promise<void> {
-    // 创建一个不关联到任何块的根级文档
-    const document = await this.core.createDocument(name, null, null, 'document');
-    if (document) {
-      (window as any).orca.notify('success', '根级文档创建成功');
-      // 强制重新渲染UI
-      this.render();
-    } else {
-      (window as any).orca.notify('error', '根级文档创建失败');
     }
   }
 
@@ -1694,28 +1682,6 @@ class FolderTreeRenderer {
         label: '创建笔记本',
         icon: '📓',
         action: () => this.showCreateNotebookInput()
-      },
-      {
-        label: '创建根级文档',
-        icon: '📄',
-        action: () => this.showCreateRootDocumentInput()
-      },
-      {
-        label: '从当前块创建根级文档',
-        icon: '📎',
-        action: async () => {
-          const selectedBlocks = document.querySelectorAll('.orca-block.orca-container.orca-selected');
-          if (selectedBlocks.length > 0) {
-            const blockId = selectedBlocks[0].getAttribute('data-id');
-            if (blockId && /^\d+$/.test(blockId)) {
-              await this.createDocumentFromBlock(blockId, null);
-            } else {
-              (window as any).orca.notify('warning', '请先选中一个块');
-            }
-          } else {
-            (window as any).orca.notify('info', '请先选中一个块，然后右键点击空白处');
-          }
-        }
       }
     ];
 
