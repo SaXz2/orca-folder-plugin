@@ -283,16 +283,17 @@ class FolderTreeRenderer {
 
     // 处理颜色：
     // 1. 根级项目不应用颜色
-    // 2. 非根级项目应用颜色 #d6d6d6
+    // 2. 非根级项目使用自定义颜色（如果有）或默认颜色 #d6d6d6
     const shouldApplyColor = !isRootItem;
     
     let iconBgStyle = '';
     if (shouldApplyColor) {
-      iconBgStyle = ` style="background-color: oklch(from #d6d6d6 calc(1.2 * l) c h / 25%);"`;
+      const color = item.color || '#d6d6d6';
+      iconBgStyle = ` style="background-color: oklch(from ${color} calc(1.2 * l) c h / 25%);"`;
     }
 
     if (item.color || item.icon) {
-      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', shouldApplyColor ? '#d6d6d6' : '(根级，无颜色)', '项目:', item.name, '是否根级:', isRootItem);
+      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', shouldApplyColor ? (item.color || '#d6d6d6') : '(根级，无颜色)', '项目:', item.name, '是否根级:', isRootItem);
     }
 
     const isTabler = /<i\s+class=\"ti\s+/i.test(iconHtml);

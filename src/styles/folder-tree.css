@@ -286,16 +286,24 @@
     font-size: var(--orca-fontsize-md);
 }
 
-.folder-tree-item:hover .folder-tree-item-icon {
+/* 有自定义颜色时，悬停不覆盖背景色 */
+.folder-tree-item:hover .folder-tree-item-icon:not(.has-color) {
     background-color: var(--orca-color-gray-6);
     box-shadow: 0 2px 4px #0000000d;
     animation: shakeAndScale 0.25s ease-in-out;
 }
 
 /* 条目选中（聚焦）图标样式，与悬停一致 */
-.folder-tree-item.selected .folder-tree-item-icon {
+.folder-tree-item.selected .folder-tree-item-icon:not(.has-color) {
     background-color: var(--orca-color-gray-6);
     box-shadow: 0 2px 4px #0000000d;
+}
+
+/* 有自定义颜色时，保持自定义颜色 */
+.folder-tree-item:hover .folder-tree-item-icon.has-color,
+.folder-tree-item.selected .folder-tree-item-icon.has-color {
+    box-shadow: 0 2px 4px #0000000d;
+    animation: shakeAndScale 0.25s ease-in-out;
 }
 
 .folder-tree-item-name {
@@ -306,12 +314,8 @@
     padding: 0 var(--orca-spacing-xs);
 }
 
-/* 暗色模式下文档标题颜色 */
+/* 暗色下，未自定义颜色的图标字体颜色提亮 */
 @media (prefers-color-scheme: dark) {
-  .folder-tree-item-name {
-    color: rgb(214, 214, 214);
-  }
-  /* 暗色下，未自定义颜色的图标字体颜色同样提亮 */
   .folder-tree-item-icon:not(.has-color) i {
     color: rgb(214, 214, 214);
   }
