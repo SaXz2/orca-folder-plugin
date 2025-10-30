@@ -321,6 +321,13 @@ class FolderTreeRenderer {
       // 先选中
       this.selectItem(item.id);
 
+      // 特殊处理：文档嵌套文档的父块（folder 且有 blockId）应该跳转而不是展开
+      if (item.type === 'folder' && item.blockId) {
+        // 有子项的文档：跳转
+        (window as any).orca.nav.goTo('block', { blockId: item.blockId });
+        return;
+      }
+
       // 判断是容器类型且可以展开/折叠
       const isContainer = item.type === 'notebook' || (item.type === 'folder' && expandIcon);
       if (isContainer) {
