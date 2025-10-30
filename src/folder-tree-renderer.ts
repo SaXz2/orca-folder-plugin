@@ -103,8 +103,10 @@ class FolderTreeRenderer {
     actions.className = 'folder-tree-actions';
 
     const createNotebookBtn = this.createButton('创建笔记本', this.createNotebookIcon(), () => this.showCreateNotebookInput());
+    const createDocBtn = this.createButton('创建根级文档', this.createDocumentIcon(), () => this.showCreateRootDocumentInput());
 
     actions.appendChild(createNotebookBtn);
+    actions.appendChild(createDocBtn);
 
     return actions;
   }
@@ -213,8 +215,7 @@ class FolderTreeRenderer {
    * 创建项目头部元素
    */
   private createItemHeader(item: any, isExpanded: boolean, isSelected: boolean, level: number): HTMLElement {
-    // 容器类型：笔记本或纯文件夹（没有blockId的folder）
-    const isContainer = item.type === 'notebook' || (item.type === 'folder' && !item.blockId);
+    const isContainer = item.type === 'notebook' || item.type === 'folder';
     const hasChildren = isContainer && item.children && item.children.length > 0;
 
     // 统一使用 folder-tree-item 类，为不同类型添加特殊标识
@@ -283,17 +284,16 @@ class FolderTreeRenderer {
 
     // 处理颜色：
     // 1. 根级项目不应用颜色
-    // 2. 非根级项目使用自定义颜色（如果有）或默认颜色 #d6d6d6
+    // 2. 非根级项目应用颜色 #d6d6d6
     const shouldApplyColor = !isRootItem;
     
     let iconBgStyle = '';
     if (shouldApplyColor) {
-      const color = item.color || '#d6d6d6';
-      iconBgStyle = ` style="background-color: oklch(from ${color} calc(1.2 * l) c h / 25%);"`;
+      iconBgStyle = ` style="background-color: oklch(from #d6d6d6 calc(1.2 * l) c h / 25%);"`;
     }
 
     if (item.color || item.icon) {
-      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', shouldApplyColor ? (item.color || '#d6d6d6') : '(根级，无颜色)', '项目:', item.name, '是否根级:', isRootItem);
+      console.log('[Folder Tree] 渲染 - 图标:', item.icon, '颜色:', shouldApplyColor ? '#d6d6d6' : '(根级，无颜色)', '项目:', item.name, '是否根级:', isRootItem);
     }
 
     const isTabler = /<i\s+class=\"ti\s+/i.test(iconHtml);
@@ -321,10 +321,10 @@ class FolderTreeRenderer {
       // 先选中
       this.selectItem(item.id);
 
-      // 判断是否为容器：有expandIcon表示可以展开/折叠
-      const isContainer = item.type === 'notebook' || (item.type === 'folder' && !item.blockId && expandIcon);
+      // 判断是容器类型且可以展开/折叠
+      const isContainer = item.type === 'notebook' || (item.type === 'folder' && expandIcon);
       if (isContainer) {
-        // 容器类型（笔记本或纯文件夹）：展开/折叠
+        // 容器类型：展开/折叠
         this.toggleItem(item.id);
       } else if (item.blockId) {
         // 有 blockId 的文档：跳转
