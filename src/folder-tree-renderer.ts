@@ -103,10 +103,8 @@ class FolderTreeRenderer {
     actions.className = 'folder-tree-actions';
 
     const createNotebookBtn = this.createButton('创建笔记本', this.createNotebookIcon(), () => this.showCreateNotebookInput());
-    const createDocBtn = this.createButton('创建根级文档', this.createDocumentIcon(), () => this.showCreateRootDocumentInput());
 
     actions.appendChild(createNotebookBtn);
-    actions.appendChild(createDocBtn);
 
     return actions;
   }
@@ -215,7 +213,8 @@ class FolderTreeRenderer {
    * 创建项目头部元素
    */
   private createItemHeader(item: any, isExpanded: boolean, isSelected: boolean, level: number): HTMLElement {
-    const isContainer = item.type === 'notebook' || item.type === 'folder';
+    // 容器类型：笔记本或纯文件夹（没有blockId的folder）
+    const isContainer = item.type === 'notebook' || (item.type === 'folder' && !item.blockId);
     const hasChildren = isContainer && item.children && item.children.length > 0;
 
     // 统一使用 folder-tree-item 类，为不同类型添加特殊标识
@@ -318,14 +317,16 @@ class FolderTreeRenderer {
 
     // 整个条目点击事件
     header.onclick = (e) => {
-      // 整个条目可点击：切换展开并选中
-      if ((item.type === 'notebook' || item.type === 'folder') && expandIcon) {
-        this.toggleItem(item.id);
-      }
+      // 先选中
       this.selectItem(item.id);
 
-      // 如果有 blockId，导航到该块
-      if (item.blockId) {
+      // 判断是否为容器：有expandIcon表示可以展开/折叠
+      const isContainer = item.type === 'notebook' || (item.type === 'folder' && !item.blockId && expandIcon);
+      if (isContainer) {
+        // 容器类型（笔记本或纯文件夹）：展开/折叠
+        this.toggleItem(item.id);
+      } else if (item.blockId) {
+        // 有 blockId 的文档：跳转
         (window as any).orca.nav.goTo('block', { blockId: item.blockId });
       }
     };
