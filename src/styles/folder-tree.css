@@ -224,6 +224,17 @@
     padding: 0 var(--orca-spacing-xs);
 }
 
+/* 暗色模式下文档标题颜色 */
+@media (prefers-color-scheme: dark) {
+  .folder-tree-item-name {
+    color: rgb(214, 214, 214);
+  }
+  /* 暗色下，未自定义颜色的图标字体颜色同样提亮 */
+  .folder-tree-item-icon:not(.has-color) i {
+    color: rgb(214, 214, 214);
+  }
+}
+
 .folder-tree-item-actions {
     display: flex;
     gap: var(--orca-spacing-xs);

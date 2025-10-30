@@ -369,7 +369,7 @@ class FolderTreeRenderer {
     const isTabler = /<i\s+class=\"ti\s+/i.test(iconHtml);
     const html = [
       expandIcon,
-      `<span class="folder-tree-item-icon${isTabler ? ' is-tabler' : ''}"${iconBgStyle}>${iconHtml}</span>`,
+      `<span class="folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${doc.color ? ' has-color' : ''}"${iconBgStyle}>${iconHtml}</span>`,
       '<span class="folder-tree-item-name">' + this.escapeHtml(doc.name) + '</span>',
       '<div class="folder-tree-item-actions">',
       '<button class="folder-tree-btn" title="重命名">' +
