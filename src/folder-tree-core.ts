@@ -238,13 +238,10 @@ class FolderTreeCore {
       }
 
       // 更新父级和排序
-      const moveToRoot = newParentId === 'root';
-      document.parentId = moveToRoot ? null : newParentId;
+      document.parentId = newParentId;
 
       // 添加到新父级并设置排序
-      if (moveToRoot) {
-        // 根级无需维护引用列表
-      } else if (newParentId.startsWith("notebook_")) {
+      if (newParentId.startsWith("notebook_")) {
         const notebook = this.data.notebooks.find(nb => nb.id === newParentId);
         if (notebook) {
           if (insertIndex !== undefined) {
@@ -266,7 +263,7 @@ class FolderTreeCore {
       }
 
       // 更新排序号
-      this.updateDocumentOrder(moveToRoot ? 'root' as any : newParentId);
+      this.updateDocumentOrder(newParentId);
 
       return await this.saveData();
     } catch (error) {
@@ -297,10 +294,7 @@ class FolderTreeCore {
   private updateDocumentOrder(parentId: string): void {
     if (!this.data) return;
 
-    if (parentId === ('root' as any)) {
-      const siblings = this.data.documents.filter(doc => doc.parentId == null);
-      siblings.forEach((doc, index) => { doc.order = index; });
-    } else if (parentId.startsWith("notebook_")) {
+    if (parentId.startsWith("notebook_")) {
       const notebook = this.data.notebooks.find(nb => nb.id === parentId);
       if (notebook) {
         notebook.documents.forEach((docId, index) => {
@@ -406,15 +400,6 @@ class FolderTreeCore {
       .filter(Boolean) as FolderDocument[];
 
     return documents.sort((a, b) => a.order - b.order);
-  }
-
-  /**
-   * 根级文档（与笔记本同级）
-   */
-  getRootDocuments(): FolderDocument[] {
-    if (!this.data) return [];
-    const docs = this.data.documents.filter(doc => doc.parentId == null);
-    return docs.sort((a, b) => a.order - b.order);
   }
 
   /**

@@ -26,12 +26,6 @@ class FolderTreeRenderer {
     this.setupGlobalDragListener();
   }
 
-  // 插件内静默通知（不显示右下角提示）
-  private notify(_type: 'success'|'error'|'warning'|'info', _message: string): void {
-    // no-op; keep console if needed
-    // console.debug('[Folder Tree]', _type, _message);
-  }
-
   /**
    * 设置全局拖拽监听器，捕获从 Orca 块拖拽的事件
    */
@@ -100,9 +94,6 @@ class FolderTreeRenderer {
 
     const footer = this.createFooter();
     this.container.appendChild(footer);
-
-    // 让整个容器也作为根级接收区，避免空白区域命中容器而非内容时无法放置
-    this.setupContainerRootDropZone();
   }
 
   update(): void {
@@ -146,22 +137,14 @@ class FolderTreeRenderer {
     // 设置内容区域的拖拽处理
     this.setupContentDropZone(content);
 
-    if (this.data.notebooks.length === 0 && this.core.getRootDocuments().length === 0) {
+    if (this.data.notebooks.length === 0) {
       content.appendChild(this.createEmptyState());
     } else {
-      // 笔记本
-      const rootNotebooks = this.data.notebooks
+      // 创建根级项目（笔记本）
+      const rootItems = this.data.notebooks
         .sort((a: any, b: any) => a.order - b.order)
         .map((notebook: any) => this.createNotebookItem(notebook));
-
-      rootNotebooks.forEach((el: HTMLElement) => content.appendChild(el));
-
-      // 根级文档（与笔记本同级）
-      const rootDocs = this.core.getRootDocuments();
-      rootDocs.forEach(doc => {
-        const docEl = this.createDocumentElement(doc, 0);
-        content.appendChild(docEl);
-      });
+      rootItems.forEach((el: HTMLElement) => content.appendChild(el));
     }
 
     return content;
@@ -232,7 +215,7 @@ class FolderTreeRenderer {
       this.selectItem(notebook.id);
     };
 
-    // 中键点击（鼠标中键）仅切换展开/折叠
+    // 中键点击：仅切换展开/折叠
     header.addEventListener('auxclick', (e: MouseEvent) => {
       if (e.button === 1) {
         e.preventDefault();
@@ -261,85 +244,30 @@ class FolderTreeRenderer {
 
   private setupContentDropZone(content: HTMLElement): void {
     // 设置整个内容区域为拖拽接收区
-    content.ondragenter = (e) => {
-      e.preventDefault();
-      // 默认允许移动，避免显示禁止图标
-      try { e.dataTransfer!.dropEffect = 'move'; } catch {}
-    };
-
     content.ondragover = (e) => {
       e.preventDefault();
-      // 根据拖拽数据类型，设置合适的 dropEffect（避免禁用图标）
-      const dataText = e.dataTransfer?.getData('text/plain') || '';
-      const isDoc = dataText.startsWith('document_');
-      const isBlock = /^\d+$/.test(dataText) || !!this.currentDraggedBlockId;
-      try { e.dataTransfer!.dropEffect = (isDoc || isBlock) ? 'move' : 'copy'; } catch {}
+      e.dataTransfer!.dropEffect = 'copy';
     };
 
     content.ondrop = (e) => {
       e.preventDefault();
 
-      // 仅在空白内容背景上处理根级放置；如果落在条目或笔记本头上，交给对应条目处理
-      const targetEl = e.target as HTMLElement;
-      if (targetEl.closest('.folder-tree-notebook-header, .folder-tree-item')) {
-        return;
-      }
-
+      // 获取拖拽数据
       const draggedData = e.dataTransfer!.getData('text/plain');
 
-      // 根级接收：块或文档都放到 root
-      if (!draggedData || /^\d+$/.test(draggedData)) {
-        const blockId = draggedData && /^\d+$/.test(draggedData) ? draggedData : this.currentDraggedBlockId;
-        if (blockId) {
-          this.createDocumentFromBlock(blockId, 'root');
-          this.currentDraggedBlockId = null;
-          return;
-        }
-        // 显式落入根级
-        this.handleOrcaDropToTarget(e, 'root');
+      if (!draggedData) {
+        // 尝试从Orca获取拖拽数据
+        this.handleOrcaDrop(e);
         return;
       }
 
-      const draggedId = draggedData;
-      if (draggedId.startsWith('document_')) {
-        this.core.moveDocument(draggedId, 'root');
-      }
-    };
-  }
-
-  // 顶层容器作为根级接收区（兜底），当用户把鼠标拖到内容区外的空白容器区域时也能落到根
-  private setupContainerRootDropZone(): void {
-    if (!this.container) return;
-    const el = this.container;
-    el.ondragenter = (e) => {
-      e.preventDefault();
-      try { e.dataTransfer!.dropEffect = 'move'; } catch {}
-    };
-    el.ondragover = (e) => {
-      e.preventDefault();
-      const dataText = e.dataTransfer?.getData('text/plain') || '';
-      const isDoc = dataText.startsWith('document_');
-      const isBlock = /^\d+$/.test(dataText) || !!this.currentDraggedBlockId;
-      try { e.dataTransfer!.dropEffect = (isDoc || isBlock) ? 'move' : 'copy'; } catch {}
-    };
-    el.ondrop = (e) => {
-      e.preventDefault();
-      const targetEl = e.target as HTMLElement;
-      // 如果落在条目/笔记本头内部，则交给对应元素处理
-      if (targetEl.closest('.folder-tree-notebook-header, .folder-tree-item')) return;
-      const dataText = e.dataTransfer!.getData('text/plain');
-      if (!dataText || /^\d+$/.test(dataText)) {
-        const blockId = dataText && /^\d+$/.test(dataText) ? dataText : this.currentDraggedBlockId;
-        if (blockId) {
-          this.createDocumentFromBlock(blockId, 'root');
-          this.currentDraggedBlockId = null;
-          return;
-        }
-        this.handleOrcaDropToTarget(e, 'root');
-        return;
-      }
-      if (dataText.startsWith('document_')) {
-        this.core.moveDocument(dataText, 'root');
+      // 如果有笔记本，则拖拽到第一个笔记本
+      if (this.data.notebooks.length > 0) {
+        const firstNotebook = this.data.notebooks[0];
+        this.handleDrop(e, firstNotebook.id, 'notebook');
+      } else {
+        // 没有笔记本时，提示创建笔记本
+        (window as any).orca.notify('warning', '请先创建笔记本');
       }
     };
   }
@@ -380,7 +308,7 @@ class FolderTreeRenderer {
 
     element.ondragover = (e) => {
       e.preventDefault();
-      // 不再阻止冒泡，这样内容容器也能成为根级接收区
+      e.stopPropagation();
       element.classList.add('drag-over');
     };
 
@@ -411,8 +339,6 @@ class FolderTreeRenderer {
 
   private createDocumentElement(doc: any, level: number): HTMLElement {
     const docEl = window.document.createElement('div');
-    docEl.className = 'folder-tree-doc';
-    docEl.setAttribute('data-id', doc.id);
 
     const isExpanded = this.expandedFolders.has(doc.id);
     const isSelected = this.selectedItems.has(doc.id);
@@ -428,20 +354,18 @@ class FolderTreeRenderer {
 
     // 根据类型和保存的图标信息生成图标
     let iconHtml: string;
-    if (doc.type === 'folder') {
-      // 文件夹使用 Tabler Icons
+    if (doc.type === 'folder' && !doc.blockId) {
+      // 纯文件夹（无 blockId）使用文件夹图标
       iconHtml = `<i class="ti ti-folder"></i>`;
     } else if (doc.icon) {
-      // 判断是 emoji 还是图标类名
+      // 使用保存的图标（可能是 Tabler 或 emoji）
       if (doc.icon.startsWith('ti ')) {
-        // Tabler Icons - 完整类名
         iconHtml = `<i class="${doc.icon}"></i>`;
       } else {
-        // Emoji 或其他文本
         iconHtml = doc.icon;
       }
     } else {
-      // 默认使用立方体图标
+      // 默认使用立方体图标（文档）
       iconHtml = `<i class="ti ti-cube"></i>`;
     }
 
@@ -487,7 +411,7 @@ class FolderTreeRenderer {
         this.selectItem(document.id);
       };
 
-      // 中键点击（鼠标中键）在整行上切换展开/折叠
+      // 中键点击：仅切换展开/折叠
       itemEl.addEventListener('auxclick', (e: MouseEvent) => {
         if (e.button === 1) {
           e.preventDefault();
@@ -498,10 +422,9 @@ class FolderTreeRenderer {
     }
 
     itemEl.onclick = () => {
-      // 整个条目点击：
-      // - 如果是“变成文件夹的文档”（有 blockId），左键仍然跳转
-      // - 纯文件夹则切换展开
+      // 整个条目可点击
       if (document.type === 'folder') {
+        // 如果是由文档转成的“父文档”（有 blockId），点击应跳转而不是折叠
         if (document.blockId) {
           this.selectItem(document.id);
           (window as any).orca.nav.goTo('block', { blockId: document.blockId });
@@ -584,17 +507,15 @@ class FolderTreeRenderer {
     if (item) {
       const chevron = item.querySelector('.folder-tree-expand-icon') as HTMLElement;
       chevron && chevron.classList.toggle('expanded', willExpand);
-      const wrapper = item.closest('.folder-tree-doc') as HTMLElement | null;
-      if (wrapper) {
-        const existing = wrapper.querySelector(':scope > .folder-tree-items') as HTMLElement | null;
-        if (willExpand) {
-          if (!existing) {
-            const children = this.createChildrenElement(folderId, 2);
-            wrapper.appendChild(children);
-          }
-        } else {
-          existing && existing.remove();
+      const wrapper = item.parentElement as HTMLElement; // wrapper that contains item and (optional) children
+      const existing = wrapper.querySelector(':scope > .folder-tree-items') as HTMLElement | null;
+      if (willExpand) {
+        if (!existing) {
+          const children = this.createChildrenElement(folderId, 2);
+          wrapper.appendChild(children);
         }
+      } else {
+        existing && existing.remove();
       }
     }
   }
@@ -636,18 +557,18 @@ class FolderTreeRenderer {
   private async createNotebook(name: string): Promise<void> {
     const notebook = await this.core.createNotebook(name);
     if (notebook) {
-      this.notify('success', '笔记本创建成功');
+      (window as any).orca.notify('success', '笔记本创建成功');
       this.expandedNotebooks.add(notebook.id);
       await this.core.setExpandedState('notebooks', Array.from(this.expandedNotebooks));
     } else {
-      this.notify('error', '笔记本创建失败');
+      (window as any).orca.notify('error', '笔记本创建失败');
     }
   }
 
   private showCreateFolderInput(): void {
     // 检查是否有笔记本
     if (this.data.notebooks.length === 0) {
-      this.notify('error', '请先创建笔记本');
+      (window as any).orca.notify('error', '请先创建笔记本');
       return;
     }
 
@@ -683,7 +604,7 @@ class FolderTreeRenderer {
   private async createFolder(name: string, notebookId: string): Promise<void> {
     const folder = await this.core.createDocument(name, null, notebookId, 'folder');
     if (folder) {
-      this.notify('success', '文件夹创建成功');
+      (window as any).orca.notify('success', '文件夹创建成功');
       // 确保笔记本展开
       if (!this.expandedNotebooks.has(notebookId)) {
         this.expandedNotebooks.add(notebookId);
@@ -695,7 +616,7 @@ class FolderTreeRenderer {
       // 立即重新渲染UI
       this.render();
     } else {
-      this.notify('error', '文件夹创建失败');
+      (window as any).orca.notify('error', '文件夹创建失败');
     }
   }
 
@@ -708,9 +629,9 @@ class FolderTreeRenderer {
       if (newName && newName.trim() && newName !== notebook.name) {
         const success = await this.core.renameNotebook(notebookId, newName.trim());
         if (success) {
-          this.notify('success', '笔记本重命名成功');
+          (window as any).orca.notify('success', '笔记本重命名成功');
         } else {
-          this.notify('error', '笔记本重命名失败');
+          (window as any).orca.notify('error', '笔记本重命名失败');
         }
       }
     });
@@ -723,9 +644,9 @@ class FolderTreeRenderer {
     if (confirm(`确定要删除笔记本"${notebook.name}"吗？此操作将删除该笔记本下的所有文档。`)) {
       const success = await this.core.deleteNotebook(notebookId);
       if (success) {
-        this.notify('success', '笔记本删除成功');
+        (window as any).orca.notify('success', '笔记本删除成功');
       } else {
-        this.notify('error', '笔记本删除失败');
+        (window as any).orca.notify('error', '笔记本删除失败');
       }
     }
   }
@@ -743,9 +664,9 @@ class FolderTreeRenderer {
       if (newName && newName.trim() && newName !== document.name) {
         const success = await this.core.renameDocument(documentId, newName.trim());
         if (success) {
-          this.notify('success', '重命名成功');
+          (window as any).orca.notify('success', '重命名成功');
         } else {
-          this.notify('error', '重命名失败');
+          (window as any).orca.notify('error', '重命名失败');
         }
       }
     });
@@ -757,7 +678,11 @@ class FolderTreeRenderer {
 
     // 直接删除，不提示
     const success = await this.core.deleteDocument(documentId);
-    if (success) { this.notify('success', '删除成功'); } else { this.notify('error', '删除失败'); }
+    if (success) {
+      (window as any).orca.notify('success', '删除成功');
+    } else {
+      (window as any).orca.notify('error', '删除失败');
+    }
   }
 
   private async handleDrop(e: DragEvent, targetId: string, targetType: string): Promise<void> {
@@ -770,7 +695,11 @@ class FolderTreeRenderer {
     // 处理笔记本排序
     if (targetType === 'notebook' && draggedId.startsWith('notebook_')) {
       const success = await this.reorderNotebooks(draggedId, targetId);
-      if (success) { this.notify('success', '笔记本排序成功'); } else { this.notify('error', '笔记本排序失败'); }
+      if (success) {
+        (window as any).orca.notify('success', '笔记本排序成功');
+      } else {
+        (window as any).orca.notify('error', '笔记本排序失败');
+      }
       this.currentDraggedBlockId = null;
       return;
     }
@@ -796,18 +725,26 @@ class FolderTreeRenderer {
       if (targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId && targetType !== 'document') {
         // 同级排序 - 使用共同的父级
         const success = await this.reorderDocuments(draggedId, targetId, draggedDoc.parentId);
-        if (success) { this.notify('success', '文档排序成功'); } else { this.notify('error', '文档排序失败'); }
+        if (success) {
+          (window as any).orca.notify('success', '文档排序成功');
+        } else {
+          (window as any).orca.notify('error', '文档排序失败');
+        }
       } else {
         // 移动到不同父级；若目标为文档，先转换目标为文件夹
         if (targetType === 'document') {
           await this.core.ensureFolder(targetId);
         }
         const success = await this.core.moveDocument(draggedId, targetId);
-        if (success) { this.notify('success', '移动成功'); } else { this.notify('error', '移动失败'); }
+        if (success) {
+          (window as any).orca.notify('success', '移动成功');
+        } else {
+          (window as any).orca.notify('error', '移动失败');
+        }
       }
     } else {
       console.warn('[Folder Tree] Unknown dragged item:', draggedId);
-      this.notify('warning', '无法识别拖拽的项目');
+      (window as any).orca.notify('warning', '无法识别拖拽的项目');
     }
     
     this.currentDraggedBlockId = null;
@@ -819,7 +756,7 @@ class FolderTreeRenderer {
 
       // 检查是否有笔记本
       if (this.data.notebooks.length === 0) {
-        this.notify('warning', '请先创建笔记本');
+        (window as any).orca.notify('warning', '请先创建笔记本');
         return;
       }
 
@@ -855,42 +792,11 @@ class FolderTreeRenderer {
 
       // 如果都没有获取到，显示提示
       console.log('[Folder Tree] No block ID found');
-      this.notify('info', '请拖拽块的拖拽手柄（左侧图标）到文档树');
+      (window as any).orca.notify('info', '请拖拽块的拖拽手柄（左侧图标）到文档树');
 
     } catch (error) {
       console.error('[Folder Tree] Handle Orca drop error:', error);
-      this.notify('error', '拖拽处理失败');
-    }
-  }
-
-  // 将 Orca 拖拽块落入指定父级（用于根级落入）
-  private async handleOrcaDropToTarget(e: DragEvent, targetId: string): Promise<void> {
-    try {
-      // 1) 优先使用全局捕获的块ID
-      if (this.currentDraggedBlockId) {
-        await this.createDocumentFromBlock(this.currentDraggedBlockId, targetId);
-        this.currentDraggedBlockId = null;
-        return;
-      }
-      // 2) dataTransfer 中的块ID
-      const dataText = e.dataTransfer!.getData('text/plain');
-      if (dataText && /^\d+$/.test(dataText)) {
-        await this.createDocumentFromBlock(dataText, targetId);
-        return;
-      }
-      // 3) 当前选中块
-      const selectedBlocks = document.querySelectorAll('.orca-block.orca-container.orca-selected');
-      if (selectedBlocks.length > 0) {
-        const blockId = selectedBlocks[0].getAttribute('data-id');
-        if (blockId && /^\d+$/.test(blockId)) {
-          await this.createDocumentFromBlock(blockId, targetId);
-          return;
-        }
-      }
-      this.notify('info', '请拖拽块的拖拽手柄（左侧图标）到文档树');
-    } catch (err) {
-      console.error('[Folder Tree] Handle Orca drop (to target) error:', err);
-      this.notify('error', '拖拽处理失败');
+      (window as any).orca.notify('error', '拖拽处理失败');
     }
   }
 
@@ -898,7 +804,7 @@ class FolderTreeRenderer {
     try {
       const block = await (window as any).orca.invokeBackend('get-block', blockId);
       if (!block) {
-        this.notify('error', '无法获取块信息');
+        (window as any).orca.notify('error', '无法获取块信息');
         return;
       }
 
@@ -937,14 +843,14 @@ class FolderTreeRenderer {
       console.log('[Folder Tree] 最终保存 - 图标:', iconClass, '颜色:', color, '块ID:', blockId);
       const document = await this.core.createDocument(blockName, blockId, targetId, 'document', iconClass, color);
       if (document) {
-        this.notify('success', '文档导入成功');
+        (window as any).orca.notify('success', '文档导入成功');
 
         if (targetId.startsWith('notebook_')) {
           if (!this.expandedNotebooks.has(targetId)) {
             this.expandedNotebooks.add(targetId);
             await this.core.setExpandedState('notebooks', Array.from(this.expandedNotebooks));
           }
-        } else if (targetId !== 'root') {
+        } else {
           if (!this.expandedFolders.has(targetId)) {
             this.expandedFolders.add(targetId);
             await this.core.setExpandedState('folders', Array.from(this.expandedFolders));
@@ -956,11 +862,11 @@ class FolderTreeRenderer {
           this.render();
         }, 100);
       } else {
-        this.notify('error', '文档导入失败');
+        (window as any).orca.notify('error', '文档导入失败');
       }
     } catch (error) {
       console.error('[Folder Tree] 导入块失败:', error);
-      this.notify('error', '文档导入失败');
+      (window as any).orca.notify('error', '文档导入失败');
     }
   }
 
