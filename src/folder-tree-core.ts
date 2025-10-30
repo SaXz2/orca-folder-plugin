@@ -478,6 +478,43 @@ class FolderTreeCore {
       return false;
     }
   }
+
+  /**
+   * 重新排序文档
+   */
+  async reorderDocuments(parentId: string, documentIds: string[]): Promise<boolean> {
+    if (!this.data) return false;
+
+    try {
+      // 更新父级的子文档列表 - 这里的documentIds已经是重新排序后的完整列表
+      if (parentId.startsWith('notebook_')) {
+        // 在笔记本中
+        const notebook = this.data.notebooks.find(nb => nb.id === parentId);
+        if (notebook) {
+          notebook.documents = [...documentIds];
+        }
+      } else {
+        // 在文件夹中
+        const parentDoc = this.data.documents.find(doc => doc.id === parentId);
+        if (parentDoc && parentDoc.type === 'folder') {
+          parentDoc.children = [...documentIds];
+        }
+      }
+
+      // 更新所有文档的排序字段
+      documentIds.forEach((docId, index) => {
+        const doc = this.data?.documents.find(d => d.id === docId);
+        if (doc) {
+          doc.order = index;
+        }
+      });
+
+      return await this.saveData();
+    } catch (error) {
+      console.error('Reorder documents error:', error);
+      return false;
+    }
+  }
 }
 
 export { FolderTreeCore };

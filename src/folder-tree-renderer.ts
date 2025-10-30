@@ -254,19 +254,25 @@ class FolderTreeRenderer {
 
   private setupDragDrop(element: HTMLElement, targetId: string, targetType: string): void {
     element.draggable = true;
+
     element.ondragstart = (e) => {
       e.dataTransfer!.setData('text/plain', targetId);
       e.dataTransfer!.effectAllowed = 'move';
     };
+
     element.ondragover = (e) => {
       e.preventDefault();
+      e.stopPropagation();
       element.classList.add('drag-over');
     };
+
     element.ondragleave = () => {
       element.classList.remove('drag-over');
     };
+
     element.ondrop = (e) => {
       e.preventDefault();
+      e.stopPropagation();
       element.classList.remove('drag-over');
       this.handleDrop(e, targetId, targetType);
     };
@@ -545,14 +551,41 @@ class FolderTreeRenderer {
     const draggedId = e.dataTransfer!.getData('text/plain');
     if (!draggedId || draggedId === targetId) return;
 
+    // 处理笔记本排序
+    if (targetType === 'notebook' && draggedId.startsWith('notebook_')) {
+      const success = await this.reorderNotebooks(draggedId, targetId);
+      if (success) {
+        (window as any).orca.notify('success', '笔记本排序成功');
+      } else {
+        (window as any).orca.notify('error', '笔记本排序失败');
+      }
+      return;
+    }
+
+    // 处理文档移动
     if (draggedId.startsWith('block_')) {
       await this.createDocumentFromBlock(draggedId, targetId);
     } else {
-      const success = await this.core.moveDocument(draggedId, targetId);
-      if (success) {
-        (window as any).orca.notify('success', '移动成功');
+      // 检查是否是文档排序（在相同父级内）
+      const draggedDoc = this.core.getDocumentById(draggedId);
+      const targetDoc = this.core.getDocumentById(targetId);
+
+      if (draggedDoc && targetDoc && draggedDoc.parentId === targetDoc.parentId && draggedDoc.parentId) {
+        // 同级排序 - 使用共同的父级
+        const success = await this.reorderDocuments(draggedId, targetId, draggedDoc.parentId);
+        if (success) {
+          (window as any).orca.notify('success', '文档排序成功');
+        } else {
+          (window as any).orca.notify('error', '文档排序失败');
+        }
       } else {
-        (window as any).orca.notify('error', '移动失败');
+        // 移动到不同父级
+        const success = await this.core.moveDocument(draggedId, targetId);
+        if (success) {
+          (window as any).orca.notify('success', '移动成功');
+        } else {
+          (window as any).orca.notify('error', '移动失败');
+        }
       }
     }
   }
@@ -879,6 +912,94 @@ class FolderTreeRenderer {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  private getDocumentParent(documentId: string): string | null {
+    const doc = this.core.getDocumentById(documentId);
+    return doc ? doc.parentId : null;
+  }
+
+  private async reorderNotebooks(draggedId: string, targetId: string): Promise<boolean> {
+    try {
+      // 获取当前笔记本顺序
+      const notebooks = this.data.notebooks.sort((a: any, b: any) => a.order - b.order);
+      const draggedIndex = notebooks.findIndex((nb: any) => nb.id === draggedId);
+      const targetIndex = notebooks.findIndex((nb: any) => nb.id === targetId);
+
+      if (draggedIndex === -1 || targetIndex === -1) {
+        console.error('无法找到笔记本进行排序');
+        return false;
+      }
+
+      // 移动被拖拽的笔记本到目标位置
+      const [draggedNotebook] = notebooks.splice(draggedIndex, 1);
+      notebooks.splice(targetIndex, 0, draggedNotebook);
+
+      // 重新分配order值
+      const reorderedNotebooks = notebooks.map((notebook: any, index: number) => ({
+        ...notebook,
+        order: index
+      }));
+
+      // 保存排序
+      const success = await this.core.reorderNotebooks(reorderedNotebooks.map((nb: any) => nb.id));
+
+      if (success) {
+        // 强制重新渲染
+        this.render();
+      }
+
+      return success;
+    } catch (error) {
+      console.error('笔记本排序失败:', error);
+      return false;
+    }
+  }
+
+  private async reorderDocuments(draggedId: string, targetId: string, targetParent: string): Promise<boolean> {
+    try {
+      // 确定父级和子文档列表
+      let parentId: string;
+      let siblingIds: string[];
+
+      if (targetParent.startsWith('notebook_')) {
+        // 在笔记本级别
+        parentId = targetParent;
+        const notebook = this.data.notebooks.find((nb: any) => nb.id === parentId);
+        siblingIds = notebook ? [...notebook.documents] : [];
+      } else {
+        // 在文件夹级别
+        parentId = targetParent;
+        const parentDoc = this.data.documents.find((doc: any) => doc.id === parentId);
+        siblingIds = parentDoc && parentDoc.children ? [...parentDoc.children] : [];
+      }
+
+      // 获取当前排序
+      const draggedIndex = siblingIds.indexOf(draggedId);
+      const targetIndex = siblingIds.indexOf(targetId);
+
+      if (draggedIndex === -1 || targetIndex === -1) {
+        console.error('无法找到文档进行排序');
+        return false;
+      }
+
+      // 移动被拖拽的文档到目标位置
+      const [movedId] = siblingIds.splice(draggedIndex, 1);
+      siblingIds.splice(targetIndex, 0, movedId);
+
+      // 保存排序
+      const success = await this.core.reorderDocuments(parentId, siblingIds);
+
+      if (success) {
+        // 强制重新渲染
+        this.render();
+      }
+
+      return success;
+    } catch (error) {
+      console.error('文档排序失败:', error);
+      return false;
+    }
   }
 }
 
