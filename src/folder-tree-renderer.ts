@@ -471,16 +471,29 @@ class FolderTreeRenderer {
     };
 
     // 中键点击：仅切换展开/折叠
-    header.addEventListener('auxclick', (e: MouseEvent) => {
+    // 使用 mousedown 和 auxclick 双重监听，确保在有滚动条时也能工作
+    let middleClickHandled = false;
+    const handleMiddleClick = (e: MouseEvent) => {
       if (e.button === 1) {
+        // 防止重复触发：如果已经处理过，跳过
+        if (middleClickHandled) {
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
+        middleClickHandled = true;
         // 笔记本、文件夹（包括查询块）都可以折叠，即使没有子项
         if (item.type === 'notebook' || item.type === 'folder') {
           this.toggleItem(item.id);
         }
+        // 重置标志，以便下次点击
+        setTimeout(() => {
+          middleClickHandled = false;
+        }, 100);
       }
-    });
+    };
+    header.addEventListener('mousedown', handleMiddleClick);
+    header.addEventListener('auxclick', handleMiddleClick);
 
     // 添加右键菜单
     header.oncontextmenu = (e) => {
@@ -753,13 +766,26 @@ class FolderTreeRenderer {
         };
 
         // 中键点击：仅切换展开/折叠
-        itemEl.addEventListener('auxclick', (e: MouseEvent) => {
+        // 使用 mousedown 和 auxclick 双重监听，确保在有滚动条时也能工作
+        let middleClickHandled = false;
+        const handleMiddleClick = (e: MouseEvent) => {
           if (e.button === 1) {
+            // 防止重复触发：如果已经处理过，跳过
+            if (middleClickHandled) {
+              return;
+            }
             e.preventDefault();
             e.stopPropagation();
+            middleClickHandled = true;
             this.toggleItem(document.id);
+            // 重置标志，以便下次点击
+            setTimeout(() => {
+              middleClickHandled = false;
+            }, 100);
           }
-        });
+        };
+        itemEl.addEventListener('mousedown', handleMiddleClick);
+        itemEl.addEventListener('auxclick', handleMiddleClick);
       }
     }
 
