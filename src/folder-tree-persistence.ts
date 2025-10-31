@@ -24,6 +24,7 @@ interface FolderTreeData {
   settings: {
     expandedItems: string[];
     selectedItems: string[];
+    closedNotebooks: string[]; // 已关闭的笔记本ID列表
   };
 }
 
@@ -40,6 +41,7 @@ class FolderTreePersistence {
       settings: {
         expandedItems: [],
         selectedItems: [],
+        closedNotebooks: [],
       },
     };
   }
@@ -78,7 +80,12 @@ class FolderTreePersistence {
         newData.settings = {
           expandedItems: [],
           selectedItems: [],
+          closedNotebooks: [],
         };
+      }
+      // 如果缺少 closedNotebooks 字段，添加它（向后兼容）
+      if (!newData.settings.closedNotebooks) {
+        newData.settings.closedNotebooks = [];
       }
 
       return newData;
@@ -130,7 +137,8 @@ class FolderTreePersistence {
         ...(oldData.settings?.expandedNotebooks || []),
         ...(oldData.settings?.expandedFolders || [])
       ],
-      selectedItems: oldData.settings?.selectedItems || []
+      selectedItems: oldData.settings?.selectedItems || [],
+      closedNotebooks: oldData.settings?.closedNotebooks || []
     };
 
     console.log("[Folder Tree] 数据迁移完成，共迁移", items.length, "个项目");

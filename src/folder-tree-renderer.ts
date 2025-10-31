@@ -21,6 +21,7 @@ class FolderTreeRenderer {
   private currentDraggedItem: { id: string; type: string } | null = null;
   private updatingIcons: Set<string> = new Set(); // 正在更新图标的项目ID集合
   private focusedItemId: string | null = null; // 聚焦的项目ID
+  private closedNotebooksExpanded: boolean = false; // "已关闭的笔记本"区域是否展开
 
   constructor(core: FolderTreeCore) {
     this.core = core;
@@ -111,7 +112,26 @@ class FolderTreeRenderer {
       });
       actions.appendChild(exitFocusBtn);
     } else {
-      // 正常模式：显示创建笔记本按钮
+      // 正常模式：显示操作按钮
+      // 折叠其他非选中项路径的项目
+      const collapseOthersBtn = this.createButton('折叠其他', this.createCollapseOthersIcon(), () => {
+        this.collapseOthers();
+      });
+      actions.appendChild(collapseOthersBtn);
+
+      // 折叠全部按钮
+      const collapseAllBtn = this.createButton('折叠全部', this.createCollapseAllIcon(), () => {
+        this.collapseAll();
+      });
+      actions.appendChild(collapseAllBtn);
+
+      // 展开全部按钮
+      const expandAllBtn = this.createButton('展开全部', this.createExpandAllIcon(), () => {
+        this.expandAll();
+      });
+      actions.appendChild(expandAllBtn);
+
+      // 创建笔记本按钮
       const createNotebookBtn = this.createButton('创建笔记本', this.createNotebookIcon(), () => this.showCreateNotebookInput());
       actions.appendChild(createNotebookBtn);
     }
@@ -162,6 +182,103 @@ class FolderTreeRenderer {
   private exitFocus(): void {
     this.focusedItemId = null;
     this.render();
+  }
+
+  /**
+   * 折叠全部项目
+   */
+  private async collapseAll(): Promise<void> {
+    // 清空所有展开状态
+    this.expandedItems.clear();
+    // 保存到持久化
+    await this.core.setExpandedState([]);
+    // 重新渲染
+    this.render();
+  }
+
+  /**
+   * 展开全部项目
+   */
+  private async expandAll(): Promise<void> {
+    if (!this.data) return;
+
+    // 获取所有可展开的项目（notebook 和 folder）
+    const expandableItems = this.data.items.filter(
+      (item: any) => (item.type === 'notebook' || item.type === 'folder') && this.core.getItemChildren(item.id).length > 0
+    );
+
+    // 将所有可展开项目的ID添加到展开集合
+    const allExpandableIds = expandableItems.map((item: any) => item.id);
+    this.expandedItems = new Set(allExpandableIds);
+
+    // 保存到持久化
+    await this.core.setExpandedState(Array.from(this.expandedItems));
+    // 重新渲染
+    this.render();
+  }
+
+  /**
+   * 创建折叠全部图标
+   */
+  private createCollapseAllIcon(): string {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h8M6 20h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/></svg>';
+  }
+
+  /**
+   * 创建展开全部图标
+   */
+  private createExpandAllIcon(): string {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h8M6 20h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/><path d="M12 8v8"/></svg>';
+  }
+
+  /**
+   * 折叠其他非选中项路径的项目（不聚焦，保持正常视图）
+   */
+  private async collapseOthers(): Promise<void> {
+    // 获取当前选中的项目
+    const selectedIds = Array.from(this.selectedItems);
+    
+    if (selectedIds.length === 0) {
+      (window as any).orca.notify('info', '请先选择一个项目');
+      return;
+    }
+
+    // 获取第一个选中的项目
+    const selectedId = selectedIds[0];
+    const item = this.core.getItemById(selectedId);
+    
+    if (!item) {
+      (window as any).orca.notify('error', '选中的项目不存在');
+      return;
+    }
+
+    // 获取选中项目的路径
+    const path = this.getItemPath(selectedId);
+    const pathIds = new Set(path.map(p => p.id));
+
+    // 确保路径上的项目保持展开
+    path.forEach(pathItem => {
+      if (pathItem.type === 'notebook' || pathItem.type === 'folder') {
+        this.expandedItems.add(pathItem.id);
+      }
+    });
+
+    // 折叠所有不在路径上的展开项目
+    const itemsToCollapse = Array.from(this.expandedItems).filter(id => !pathIds.has(id));
+    itemsToCollapse.forEach(id => this.expandedItems.delete(id));
+
+    // 保存展开状态
+    await this.core.setExpandedState(Array.from(this.expandedItems));
+    
+    // 重新渲染
+    this.render();
+  }
+
+  /**
+   * 创建折叠其他图标
+   */
+  private createCollapseOthersIcon(): string {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h8M6 20h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/><path d="M12 8v8"/><circle cx="18" cy="6" r="2"/></svg>';
   }
 
   /**
@@ -229,8 +346,9 @@ class FolderTreeRenderer {
     } else {
       // 正常模式：获取所有根级项目（包括笔记本和文档）
       const rootItems = this.core.getRootItems();
+      const closedNotebooks = this.core.getClosedNotebookItems();
 
-      if (rootItems.length === 0) {
+      if (rootItems.length === 0 && closedNotebooks.length === 0) {
         content.appendChild(this.createEmptyState());
       } else {
         // 渲染所有根级项目
@@ -238,6 +356,12 @@ class FolderTreeRenderer {
           const itemEl = this.createItemElement(item, 0);
           content.appendChild(itemEl);
         });
+
+        // 渲染"已关闭的笔记本"区域（仅在正常模式下显示）
+        if (closedNotebooks.length > 0) {
+          const closedSection = this.createClosedNotebooksSection(closedNotebooks);
+          content.appendChild(closedSection);
+        }
       }
     }
 
@@ -286,6 +410,140 @@ class FolderTreeRenderer {
       </div>
     `;
     return empty;
+  }
+
+  /**
+   * 创建"已关闭的笔记本"区域
+   */
+  private createClosedNotebooksSection(closedNotebooks: any[]): HTMLElement {
+    const section = document.createElement('div');
+    section.className = 'folder-tree-closed-section';
+
+    // 创建头部
+    const header = document.createElement('div');
+    header.className = 'folder-tree-item is-root';
+    header.setAttribute('data-id', 'closed-notebooks-section');
+    header.setAttribute('data-level', '0');
+
+    const isExpanded = this.closedNotebooksExpanded;
+    const expandIcon = isExpanded
+      ? '<i class="ti ti-chevron-right folder-tree-expand-icon expanded"></i>'
+      : '<i class="ti ti-chevron-right folder-tree-expand-icon"></i>';
+
+    header.innerHTML = `
+      ${expandIcon}
+      <span class="folder-tree-item-icon">
+        <i class="ti ti-notebook-off"></i>
+      </span>
+      <span class="folder-tree-item-name">已关闭的笔记本 <span class="folder-tree-item-count">(${closedNotebooks.length})</span></span>
+      <div class="folder-tree-item-actions"></div>
+    `;
+
+    // 点击头部切换展开/折叠
+    header.onclick = () => {
+      this.closedNotebooksExpanded = !this.closedNotebooksExpanded;
+      this.render();
+    };
+
+    section.appendChild(header);
+
+    // 如果展开，显示关闭的笔记本列表
+    if (isExpanded) {
+      const childrenContainer = document.createElement('div');
+      childrenContainer.className = 'folder-tree-items';
+      
+      closedNotebooks.forEach(notebook => {
+        const notebookEl = this.createClosedNotebookElement(notebook);
+        childrenContainer.appendChild(notebookEl);
+      });
+
+      section.appendChild(childrenContainer);
+    }
+
+    return section;
+  }
+
+  /**
+   * 创建已关闭的笔记本元素
+   */
+  private createClosedNotebookElement(notebook: any): HTMLElement {
+    const itemEl = document.createElement('div');
+    itemEl.className = 'folder-tree-item';
+    itemEl.setAttribute('data-id', notebook.id);
+    itemEl.setAttribute('data-level', '1');
+
+    const isSelected = this.selectedItems.has(notebook.id);
+    const selectedClass = isSelected ? ' selected' : '';
+
+    itemEl.innerHTML = `
+      <span style="width: 14px; display: inline-block;"></span>
+      <span class="folder-tree-item-icon">
+        <i class="ti ti-notebook"></i>
+      </span>
+      <span class="folder-tree-item-name">${this.escapeHtml(notebook.name)}</span>
+      <div class="folder-tree-item-actions">
+        <button class="folder-tree-btn" title="恢复">
+          <i class="ti ti-restore"></i>
+        </button>
+      </div>
+    `;
+
+    itemEl.className = `folder-tree-item${selectedClass}`;
+
+    // 点击选择
+    itemEl.onclick = () => {
+      this.selectItem(notebook.id);
+    };
+
+    // 恢复按钮
+    const restoreBtn = itemEl.querySelector('.folder-tree-item-actions button') as HTMLElement;
+    if (restoreBtn) {
+      restoreBtn.onclick = async (e) => {
+        e.stopPropagation();
+        await this.restoreNotebook(notebook.id);
+      };
+    }
+
+    return itemEl;
+  }
+
+  /**
+   * 关闭笔记本
+   */
+  private async closeNotebook(notebookId: string): Promise<void> {
+    const success = await this.core.closeNotebook(notebookId);
+    if (success) {
+      this.render();
+      (window as any).orca.notify('success', '笔记本已关闭');
+    } else {
+      (window as any).orca.notify('error', '关闭失败');
+    }
+  }
+
+  /**
+   * 恢复笔记本
+   */
+  private async restoreNotebook(notebookId: string): Promise<void> {
+    const success = await this.core.restoreNotebook(notebookId);
+    if (success) {
+      this.render();
+      (window as any).orca.notify('success', '笔记本已恢复');
+    } else {
+      (window as any).orca.notify('error', '恢复失败');
+    }
+  }
+
+  /**
+   * 对指定项目的子项进行自然排序
+   */
+  private async naturalSortChildren(parentId: string | null): Promise<void> {
+    const success = await this.core.naturalSortChildren(parentId);
+    if (success) {
+      this.render();
+      (window as any).orca.notify('success', '排序完成');
+    } else {
+      (window as any).orca.notify('error', '排序失败');
+    }
   }
 
   /**
@@ -2521,6 +2779,18 @@ class FolderTreeRenderer {
       }
     ];
 
+    // 根级项目的自然排序选项
+    const rootItems = this.core.getRootItems();
+    if (rootItems.length > 1) {
+      menuItems.push({
+        label: '自然排序',
+        icon: '🔢',
+        action: () => {
+          this.naturalSortChildren(null);
+        }
+      });
+    }
+
     // 创建菜单项
     menuItems.forEach(item => {
       const menuItem = document.createElement('div');
@@ -2637,6 +2907,44 @@ class FolderTreeRenderer {
           icon: '🎯',
           action: () => {
             this.focusItem(itemId, true);
+          }
+        });
+      }
+    }
+
+    // 关闭笔记本选项（仅对笔记本）
+    if (itemType === 'notebook') {
+      const closedNotebooks = this.core.getClosedNotebooks();
+      if (closedNotebooks.includes(itemId)) {
+        // 如果已经关闭，显示恢复选项
+        menuItems.push({
+          label: '恢复',
+          icon: '📖',
+          action: () => {
+            this.restoreNotebook(itemId);
+          }
+        });
+      } else {
+        // 如果未关闭，显示关闭选项
+        menuItems.push({
+          label: '关闭',
+          icon: '📕',
+          action: () => {
+            this.closeNotebook(itemId);
+          }
+        });
+      }
+    }
+
+    // 自然排序选项（笔记本和文件夹可以对其子项排序）
+    if (itemType === 'notebook' || itemType === 'folder') {
+      const children = this.core.getItemChildren(itemId);
+      if (children.length > 1) {
+        menuItems.push({
+          label: '自然排序',
+          icon: '🔢',
+          action: () => {
+            this.naturalSortChildren(itemId);
           }
         });
       }

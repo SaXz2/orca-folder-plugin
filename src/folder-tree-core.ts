@@ -304,6 +304,117 @@ class FolderTreeCore {
   }
 
   /**
+   * 获取已关闭的笔记本
+   */
+  getClosedNotebooks(): string[] {
+    return this.data?.settings.closedNotebooks || [];
+  }
+
+  /**
+   * 关闭笔记本
+   */
+  async closeNotebook(notebookId: string): Promise<boolean> {
+    if (!this.data) return false;
+
+    const notebook = this.getItemById(notebookId);
+    if (!notebook || notebook.type !== 'notebook') {
+      console.error('[Folder Tree] 笔记本不存在或类型不正确:', notebookId);
+      return false;
+    }
+
+    // 如果已经关闭，不重复添加
+    if (this.data.settings.closedNotebooks.includes(notebookId)) {
+      return true;
+    }
+
+    this.data.settings.closedNotebooks.push(notebookId);
+    const success = await this.persistence.saveSettings(this.data.settings);
+    if (success) {
+      this.notifyDataChange();
+    }
+    return success;
+  }
+
+  /**
+   * 恢复笔记本（取消关闭）
+   */
+  async restoreNotebook(notebookId: string): Promise<boolean> {
+    if (!this.data) return false;
+
+    const index = this.data.settings.closedNotebooks.indexOf(notebookId);
+    if (index === -1) {
+      return true; // 如果不在关闭列表中，认为已经恢复
+    }
+
+    this.data.settings.closedNotebooks.splice(index, 1);
+    const success = await this.persistence.saveSettings(this.data.settings);
+    if (success) {
+      this.notifyDataChange();
+    }
+    return success;
+  }
+
+  /**
+   * 对指定项目的子项进行自然排序
+   * @param parentId - 父项目ID，如果为null则对根级项目排序
+   */
+  async naturalSortChildren(parentId: string | null): Promise<boolean> {
+    if (!this.data) return false;
+
+    // 获取所有子项
+    // 如果 parentId 为 null，获取根级项目；否则获取指定项目的子项
+    const children = parentId === null 
+      ? this.getRootItems()
+      : this.getItemChildren(parentId);
+    
+    if (children.length === 0) {
+      return true; // 没有子项，无需排序
+    }
+
+    // 自然排序函数：能够正确处理数字
+    const naturalCompare = (a: string, b: string): number => {
+      // 将字符串分割成数字和非数字部分
+      const regex = /(\d+|\D+)/g;
+      const aParts = a.toLowerCase().match(regex) || [];
+      const bParts = b.toLowerCase().match(regex) || [];
+      
+      const minLength = Math.min(aParts.length, bParts.length);
+      
+      for (let i = 0; i < minLength; i++) {
+        const aPart = aParts[i];
+        const bPart = bParts[i];
+        
+        // 如果都是数字，按数值比较
+        const aNum = Number(aPart);
+        const bNum = Number(bPart);
+        
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+          if (aNum !== bNum) {
+            return aNum - bNum;
+          }
+        } else {
+          // 否则按字符串比较
+          if (aPart !== bPart) {
+            return aPart < bPart ? -1 : 1;
+          }
+        }
+      }
+      
+      // 如果前缀相同，较短的排在前面
+      return aParts.length - bParts.length;
+    };
+
+    // 按名称自然排序
+    const sortedChildren = [...children].sort((a, b) => naturalCompare(a.name, b.name));
+
+    // 获取排序后的ID列表
+    const sortedIds = sortedChildren.map(item => item.id);
+
+    // 使用现有的reorderItems方法更新顺序
+    return await this.reorderItems(parentId, sortedIds);
+  }
+
+  /**
    * 获取展开的项目
    */
   getExpandedItems(): string[] {
@@ -393,10 +504,23 @@ class FolderTreeCore {
     return children.sort((a, b) => a.order - b.order);
   }
 
-  /** 根级项目（包括笔记本和文档） */
+  /** 根级项目（包括笔记本和文档，排除已关闭的笔记本） */
   getRootItems(): FolderItem[] {
     if (!this.data) return [];
-    const items = this.data.items.filter(item => item.parentId === null);
+    const closedNotebooks = new Set(this.getClosedNotebooks());
+    const items = this.data.items.filter(item => 
+      item.parentId === null && !closedNotebooks.has(item.id)
+    );
+    return items.sort((a, b) => a.order - b.order);
+  }
+
+  /** 获取已关闭的笔记本列表 */
+  getClosedNotebookItems(): FolderItem[] {
+    if (!this.data) return [];
+    const closedNotebooks = this.getClosedNotebooks();
+    const items = this.data.items.filter(item => 
+      closedNotebooks.includes(item.id)
+    );
     return items.sort((a, b) => a.order - b.order);
   }
 

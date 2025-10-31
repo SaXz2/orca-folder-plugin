@@ -22,6 +22,12 @@
     line-height: 1.4;
 }
 
+/* 已关闭的笔记本区域 - 确保在底部 */
+.folder-tree-closed-section {
+    margin-top: auto;
+    order: 9999;
+}
+
 /* 操作按钮容器 - 底部 */
 .folder-tree-actions {
     display: flex;
