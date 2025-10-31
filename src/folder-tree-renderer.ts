@@ -20,6 +20,7 @@ class FolderTreeRenderer {
   private currentDraggedBlockId: string | null = null;
   private currentDraggedItem: { id: string; type: string } | null = null;
   private updatingIcons: Set<string> = new Set(); // 正在更新图标的项目ID集合
+  private focusedItemId: string | null = null; // 聚焦的项目ID
 
   constructor(core: FolderTreeCore) {
     this.core = core;
@@ -103,11 +104,71 @@ class FolderTreeRenderer {
     const actions = document.createElement('div');
     actions.className = 'folder-tree-actions';
 
-    const createNotebookBtn = this.createButton('创建笔记本', this.createNotebookIcon(), () => this.showCreateNotebookInput());
-
-    actions.appendChild(createNotebookBtn);
+    // 如果处于聚焦模式，显示退出聚焦按钮
+    if (this.focusedItemId) {
+      const exitFocusBtn = this.createButton('退出聚焦', this.createExitFocusIcon(), () => {
+        this.exitFocus();
+      });
+      actions.appendChild(exitFocusBtn);
+    } else {
+      // 正常模式：显示创建笔记本按钮
+      const createNotebookBtn = this.createButton('创建笔记本', this.createNotebookIcon(), () => this.showCreateNotebookInput());
+      actions.appendChild(createNotebookBtn);
+    }
 
     return actions;
+  }
+
+  /**
+   * 聚焦指定项目
+   */
+  private focusItem(itemId: string, collapseOthers: boolean = false): void {
+    const item = this.core.getItemById(itemId);
+    if (!item) {
+      (window as any).orca.notify('error', '项目不存在');
+      return;
+    }
+
+    this.focusedItemId = itemId;
+    
+    // 获取路径并自动展开路径上的所有项目
+    const path = this.getItemPath(itemId);
+    path.forEach(item => {
+      if (item.type === 'notebook' || item.type === 'folder') {
+        this.expandedItems.add(item.id);
+      }
+    });
+
+    // 如果选择折叠其他项目
+    if (collapseOthers) {
+      const pathIds = new Set(path.map(p => p.id));
+      // 折叠所有不在路径上的展开项目
+      const itemsToCollapse = Array.from(this.expandedItems).filter(id => !pathIds.has(id));
+      itemsToCollapse.forEach(id => this.expandedItems.delete(id));
+      // 保存展开状态
+      this.core.setExpandedState(Array.from(this.expandedItems));
+    }
+
+    // 选中聚焦的项目
+    this.selectItem(itemId);
+    
+    // 重新渲染
+    this.render();
+  }
+
+  /**
+   * 退出聚焦模式
+   */
+  private exitFocus(): void {
+    this.focusedItemId = null;
+    this.render();
+  }
+
+  /**
+   * 创建退出聚焦图标
+   */
+  private createExitFocusIcon(): string {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>';
   }
 
   private createButton(title: string, svg: string, onClick: () => void): HTMLButtonElement {
@@ -144,20 +205,70 @@ class FolderTreeRenderer {
     // 设置内容区域的拖拽处理
     this.setupContentDropZone(content);
 
-    // 获取所有根级项目（包括笔记本和文档）
-    const rootItems = this.core.getRootItems();
-
-    if (rootItems.length === 0) {
-      content.appendChild(this.createEmptyState());
+    // 如果处于聚焦模式，只显示聚焦项目的路径及其相关项目
+    if (this.focusedItemId) {
+      const path = this.getItemPath(this.focusedItemId);
+      if (path.length > 0) {
+        // 自动展开路径上的所有项目
+        path.forEach(item => {
+          if (item.type === 'notebook' || item.type === 'folder') {
+            this.expandedItems.add(item.id);
+          }
+        });
+        // 渲染路径：从根级项目开始，递归渲染到聚焦项目
+        if (path.length > 0) {
+          const rootItem = path[0];
+          const rootItemEl = this.createItemElementWithFocus(rootItem, 0, this.focusedItemId, path);
+          content.appendChild(rootItemEl);
+        }
+      } else {
+        // 如果路径为空（可能是项目已被删除），退出聚焦
+        this.focusedItemId = null;
+        this.render();
+      }
     } else {
-      // 渲染所有根级项目
-      rootItems.forEach(item => {
-        const itemEl = this.createItemElement(item, 0);
-        content.appendChild(itemEl);
-      });
+      // 正常模式：获取所有根级项目（包括笔记本和文档）
+      const rootItems = this.core.getRootItems();
+
+      if (rootItems.length === 0) {
+        content.appendChild(this.createEmptyState());
+      } else {
+        // 渲染所有根级项目
+        rootItems.forEach(item => {
+          const itemEl = this.createItemElement(item, 0);
+          content.appendChild(itemEl);
+        });
+      }
     }
 
     return content;
+  }
+
+  /**
+   * 获取从根到目标项目的路径
+   */
+  private getItemPath(itemId: string): any[] {
+    const path: any[] = [];
+    let current: any = this.core.getItemById(itemId);
+    
+    // 如果项目不存在，返回空路径
+    if (!current) {
+      return [];
+    }
+
+    // 先收集所有祖先（从目标到根）
+    const ancestors: any[] = [];
+    while (current) {
+      ancestors.push(current);
+      if (current.parentId) {
+        current = this.core.getItemById(current.parentId);
+      } else {
+        break;
+      }
+    }
+
+    // 反转数组得到从根到目标的路径
+    return ancestors.reverse();
   }
 
   private createEmptyState(): HTMLElement {
@@ -175,6 +286,33 @@ class FolderTreeRenderer {
       </div>
     `;
     return empty;
+  }
+
+  /**
+   * 在聚焦模式下创建项目元素（只显示路径上的项目）
+   */
+  private createItemElementWithFocus(item: any, level: number, focusedItemId: string, path: any[]): HTMLElement {
+    const itemEl = this.createItemElement(item, level);
+    
+    // 如果这个项目在路径上但不是最后一个（不是聚焦项目），需要检查是否有子项在路径上
+    const currentIndex = path.findIndex(p => p.id === item.id);
+    if (currentIndex >= 0 && currentIndex < path.length - 1) {
+      // 这个项目在路径上，下一个路径项目应该是它的子项
+      const nextPathItem = path[currentIndex + 1];
+      // 只展开并显示路径上的下一个子项，隐藏其他子项
+      const childrenEl = itemEl.querySelector('.folder-tree-items');
+      if (childrenEl) {
+        // 移除所有子项，只保留路径上的下一个
+        childrenEl.innerHTML = '';
+        const nextItemEl = this.createItemElementWithFocus(nextPathItem, level + 1, focusedItemId, path);
+        childrenEl.appendChild(nextItemEl);
+      }
+    } else if (currentIndex === path.length - 1) {
+      // 这是聚焦项目本身，正常显示其子项（如果有）
+      // createItemElement 已经处理了
+    }
+    
+    return itemEl;
   }
 
   /**
@@ -2473,6 +2611,35 @@ class FolderTreeRenderer {
           }
         }
       });
+    }
+
+    // 聚焦选项（如果不是根级项目）
+    const currentItem = this.core.getItemById(itemId);
+    if (currentItem && currentItem.parentId !== null) {
+      if (this.focusedItemId === itemId) {
+        menuItems.push({
+          label: '退出聚焦',
+          icon: '🔍',
+          action: () => {
+            this.exitFocus();
+          }
+        });
+      } else {
+        menuItems.push({
+          label: '聚焦',
+          icon: '🔍',
+          action: () => {
+            this.focusItem(itemId, false);
+          }
+        });
+        menuItems.push({
+          label: '聚焦并折叠其他',
+          icon: '🎯',
+          action: () => {
+            this.focusItem(itemId, true);
+          }
+        });
+      }
     }
 
     // 重命名选项
