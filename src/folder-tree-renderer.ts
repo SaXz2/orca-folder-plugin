@@ -193,12 +193,15 @@ class FolderTreeRenderer {
     }
 
     const isExpanded = this.expandedItems.has(item.id);
-    const hasChildren = (item.type === 'notebook' || item.type === 'folder') &&
-                       item.children && item.children.length > 0;
+    // 通过 core 获取真实的子项数量，而不是依赖 item.children（可能不存在）
+    const childrenCount = (item.type === 'notebook' || item.type === 'folder')
+      ? this.core.getItemChildren(item.id).length
+      : 0;
+    const hasChildren = childrenCount > 0;
     const isSelected = this.selectedItems.has(item.id);
 
     // 创建项目头部
-    const headerEl = this.createItemHeader(item, isExpanded, isSelected, level);
+    const headerEl = this.createItemHeader(item, isExpanded, isSelected, level, hasChildren);
     itemEl.appendChild(headerEl);
 
     // 如果是展开的容器类型，添加子元素
@@ -213,9 +216,8 @@ class FolderTreeRenderer {
   /**
    * 创建项目头部元素
    */
-  private createItemHeader(item: any, isExpanded: boolean, isSelected: boolean, level: number): HTMLElement {
+  private createItemHeader(item: any, isExpanded: boolean, isSelected: boolean, level: number, hasChildren: boolean): HTMLElement {
     const isContainer = item.type === 'notebook' || item.type === 'folder';
-    const hasChildren = isContainer && item.children && item.children.length > 0;
 
     // 统一使用 folder-tree-item 类，为不同类型添加特殊标识
     const isRoot = item.parentId === null;
@@ -228,7 +230,7 @@ class FolderTreeRenderer {
     header.className = `folder-tree-item${notebookClass}${rootClass}${parentClass}${selectedClass}`.trim();
     header.setAttribute('data-id', item.id);
     header.setAttribute('data-level', level.toString());
-    header.style.marginLeft = `${level * 16}px`; // 缩进
+    // 缩进由 CSS 控制，不设置内联样式
 
     // 展开/折叠图标
     const expandIcon = hasChildren
@@ -472,8 +474,9 @@ class FolderTreeRenderer {
     header.addEventListener('auxclick', (e: MouseEvent) => {
       if (e.button === 1) {
         e.preventDefault();
-      e.stopPropagation();
-        if ((item.type === 'notebook' || item.type === 'folder') && expandIcon) {
+        e.stopPropagation();
+        // 笔记本、文件夹（包括查询块）都可以折叠，即使没有子项
+        if (item.type === 'notebook' || item.type === 'folder') {
           this.toggleItem(item.id);
         }
       }
@@ -862,17 +865,29 @@ class FolderTreeRenderer {
    */
   private async toggleItem(itemId: string): Promise<void> {
     const willExpand = !this.expandedItems.has(itemId);
+    const item = this.core.getItemById(itemId);
+    const isQueryBlock = item && (item as any).isQueryBlock;
+    
     if (willExpand) {
       this.expandedItems.add(itemId);
       
       // 如果是查询块，展开时更新子项
-      const item = this.core.getItemById(itemId);
-      if (item && (item as any).isQueryBlock && (item as any).queryBlockId) {
+      if (isQueryBlock && (item as any).queryBlockId) {
         const queryBlockId = (item as any).queryBlockId;
         const queryBlock = await (window as any).orca.invokeBackend('get-block', queryBlockId);
         if (queryBlock) {
           const reprProp = this.findProperty(queryBlock, '_repr');
-          const queryBlockRepr = reprProp?.value;
+          let queryBlockRepr = reprProp?.value;
+          
+          // 如果 value 是字符串，尝试解析它（这通常不应该发生，但为了健壮性）
+          if (typeof queryBlockRepr === 'string') {
+            try {
+              queryBlockRepr = JSON.parse(queryBlockRepr);
+            } catch (e) {
+              console.error('[Folder Tree] 无法解析 _repr.value:', e);
+            }
+          }
+          
           if (queryBlockRepr && queryBlockRepr.type === 'query') {
             // 更新查询结果的子项
             await this.updateQueryBlockChildren(itemId, queryBlockRepr);
@@ -885,38 +900,37 @@ class FolderTreeRenderer {
 
     await this.core.setExpandedState(Array.from(this.expandedItems));
 
-    // 局部更新以避免闪烁
-    const item = this.container?.querySelector(`[data-id="${itemId}"]`) as HTMLElement | null;
-    if (item) {
-      const chevron = item.querySelector('.folder-tree-expand-icon') as HTMLElement;
-      if (chevron) {
-        chevron.classList.toggle('expanded', willExpand);
-      }
+    // 对于查询块，展开时 updateQueryBlockChildren 内部已触发 render()，折叠时需要手动 render()
+    // 对于普通文件夹/笔记本，使用局部更新以避免闪烁
+    if (!isQueryBlock) {
+      // 局部更新以避免闪烁
+      const itemEl = this.container?.querySelector(`[data-id="${itemId}"]`) as HTMLElement | null;
+      if (itemEl) {
+        const chevron = itemEl.querySelector('.folder-tree-expand-icon') as HTMLElement;
+        if (chevron) {
+          chevron.classList.toggle('expanded', willExpand);
+        }
 
-      // 查找父容器
-      const wrapper = item.parentElement as HTMLElement;
-      const existing = wrapper.querySelector(':scope > .folder-tree-items') as HTMLElement | null;
+        // 查找父容器
+        const wrapper = itemEl.parentElement as HTMLElement;
+        const existing = wrapper.querySelector(':scope > .folder-tree-items') as HTMLElement | null;
 
-      if (willExpand) {
-        // 添加子节点
-        if (!existing) {
-          const children = this.createChildrenElement(itemId, 1);
-          wrapper.appendChild(children);
-        } else {
-          // 如果已存在但需要更新（查询块的情况），重新创建
-          const itemData = this.core.getItemById(itemId);
-          if (itemData && (itemData as any).isQueryBlock) {
-            existing.remove();
+        if (willExpand) {
+          // 添加子节点
+          if (!existing) {
             const children = this.createChildrenElement(itemId, 1);
             wrapper.appendChild(children);
           }
-        }
-    } else {
-        // 移除子节点
-        if (existing) {
-          existing.remove();
+        } else {
+          // 移除子节点
+          if (existing) {
+            existing.remove();
+          }
         }
       }
+    } else if (!willExpand) {
+      // 查询块折叠时需要手动触发 render()
+      this.render();
     }
   }
 
@@ -1503,8 +1517,30 @@ class FolderTreeRenderer {
 
       // 检测是否是查询块
       const reprProp = this.findProperty(block, '_repr');
-      const queryBlockRepr = reprProp?.value;
+      let queryBlockRepr = reprProp?.value;
+      
+      // 如果 value 是字符串，尝试解析它（这通常不应该发生，但为了健壮性）
+      if (typeof queryBlockRepr === 'string') {
+        try {
+          queryBlockRepr = JSON.parse(queryBlockRepr);
+        } catch (e) {
+          console.error('[Folder Tree] 无法解析 _repr.value:', e);
+        }
+      }
+      
       const isQueryBlock = queryBlockRepr && queryBlockRepr.type === 'query';
+      
+      // 调试日志
+      if (isQueryBlock) {
+        console.log('[Folder Tree] 查询块 _repr:', {
+          reprPropType: reprProp?.type,
+          reprPropValueType: typeof reprProp?.value,
+          queryBlockReprKeys: queryBlockRepr ? Object.keys(queryBlockRepr) : null,
+          hasQ: !!queryBlockRepr?.q,
+          hasView: !!queryBlockRepr?.view,
+          hasViewOpts: !!queryBlockRepr?.viewOpts
+        });
+      }
 
       if (isQueryBlock) {
         console.log('[Folder Tree] 检测到查询块，开始处理查询:', blockId);
@@ -1714,29 +1750,105 @@ class FolderTreeRenderer {
       );
 
       // 执行查询
+      // queryBlockRepr 的结构是 {"type":"query", "q": QueryDescription}
+      // queryBlockRepr.q 才是完整的查询描述对象（包含 q、sort、page、pageSize 等）
       if (!queryBlockRepr.q) {
         console.error('[Folder Tree] 查询块缺少查询配置');
         return;
       }
 
-      // 设置查询参数
-      const query = {
-        ...queryBlockRepr.q,
-        page: 1,
-        pageSize: 500 // 默认加载500条
+      // queryBlockRepr 的结构：
+      // {
+      //   type: "query",
+      //   q: { q: QueryGroup, sort?, ... },  // 查询描述对象（完整的 QueryDescription）
+      //   view: "list" | "table" | "card" | "calendar",
+      //   viewOpts: {
+      //     list: { sort: [...], tagName?: ... },
+      //     table: { sort: [...], tagName?: ..., columns: [...] },
+      //     ...
+      //   },
+      //   sfold: boolean
+      // }
+      
+      // 直接使用 queryBlockRepr.q 作为查询参数，它已经是完整的 QueryDescription 对象
+      // 包含所有属性：q, sort, page, pageSize, excludeId, tagName, groupBy, group, stats, asTable, asCalendar 等
+      const query: any = {
+        ...queryBlockRepr.q  // 原封不动展开所有配置
       };
 
-      const results = await (window as any).orca.invokeBackend('query', query);
+      // 从 viewOpts 中读取排序配置（根据当前 view），如果存在则覆盖
+      const view = queryBlockRepr.view || 'list';
+      const viewOpts = queryBlockRepr.viewOpts || {};
+      const currentViewOpts = viewOpts[view];
+      
+      if (currentViewOpts && currentViewOpts.sort && Array.isArray(currentViewOpts.sort) && currentViewOpts.sort.length > 0) {
+        // 使用当前视图的排序配置（覆盖 queryBlockRepr.q.sort 如果存在）
+        query.sort = currentViewOpts.sort;
+        console.log('[Folder Tree] 使用视图排序配置:', view, currentViewOpts.sort);
+      } else if (query.sort && query.sort.length > 0) {
+        // 使用查询描述对象中的排序配置（来自 queryBlockRepr.q.sort）
+        console.log('[Folder Tree] 使用查询描述中的排序配置:', query.sort);
+      }
+      // 如果都没有，不传递 sort 参数，让查询API使用其默认行为
+
+      // 覆盖分页设置，确保加载足够的条目
+      query.page = 1;
+      query.pageSize = 500;
+
+      console.log('[Folder Tree] 查询配置:', {
+        view: view,
+        hasSort: !!query.sort,
+        sort: query.sort,
+        hasQ: !!query.q,
+        viewOptsKeys: Object.keys(viewOpts),
+        queryBlockRepr_structure: { 
+          type: queryBlockRepr.type, 
+          hasQ: !!queryBlockRepr.q,
+          hasView: !!queryBlockRepr.view,
+          hasViewOpts: !!queryBlockRepr.viewOpts
+        }
+      });
+
+      console.log('[Folder Tree] 执行查询，参数:', JSON.stringify(query, null, 2));
+      
+      let results: any;
+      try {
+        results = await (window as any).orca.invokeBackend('query', query);
+      } catch (error) {
+        console.error('[Folder Tree] 查询执行失败:', error);
+        (window as any).orca.notify('error', `查询执行失败: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
       
       if (!results || results.length === 0) {
         console.log('[Folder Tree] 查询结果为空');
+        // 删除所有不再存在的子项
+        for (const child of existingChildren) {
+          if (child.blockId) {
+            await this.core.deleteItem(child.id);
+          }
+        }
+        // 即使结果为空，也触发渲染以更新UI
+        this.render();
         return;
       }
 
-      console.log('[Folder Tree] 查询结果数量:', results.length);
+      console.log('[Folder Tree] 查询结果数量:', results.length, '结果:', results);
 
-      // 创建或更新查询结果条目
-      const resultBlockIds = new Set(results.map((id: number) => id.toString()));
+      // 查询API返回的是块对象数组，不是ID数组
+      // 提取块ID列表
+      const resultBlocks = Array.isArray(results) ? results : [];
+      const resultBlockIds = new Set(
+        resultBlocks.map((block: any) => {
+          // 如果返回的是块对象，取 id 属性；如果是ID，直接使用
+          const id = typeof block === 'object' && block !== null && 'id' in block 
+            ? block.id 
+            : block;
+          return id.toString();
+        })
+      );
+      
+      console.log('[Folder Tree] 提取到的块ID:', Array.from(resultBlockIds));
       
       // 删除不再存在的条目
       for (const child of existingChildren) {
@@ -1746,60 +1858,78 @@ class FolderTreeRenderer {
       }
 
       // 添加新的查询结果条目
-      for (let i = 0; i < results.length; i++) {
-        const blockId = results[i].toString();
+      for (let i = 0; i < resultBlocks.length; i++) {
+        const resultItem = resultBlocks[i];
+        // 处理返回的块对象或ID
+        const block = typeof resultItem === 'object' && resultItem !== null && 'id' in resultItem
+          ? resultItem  // 如果已经是块对象，直接使用
+          : await (window as any).orca.invokeBackend('get-block', resultItem);  // 如果是ID，获取块对象
+        
+        if (!block || !block.id) {
+          console.warn('[Folder Tree] 无法获取块信息:', resultItem);
+          continue;
+        }
+
+        const blockId = block.id.toString();
         
         // 检查是否已存在
         const existing = existingChildren.find(child => child.blockId === blockId);
         if (existing) {
-          // 更新顺序
+          // 已存在，跳过创建
           continue;
         }
 
-        // 获取块信息以获取名称
-        const block = await (window as any).orca.invokeBackend('get-block', blockId);
+        // 获取块名称
         let blockName = `文档 ${blockId}`;
+        if (block.aliases && block.aliases.length > 0) {
+          blockName = block.aliases[0];
+        } else if (block.text) {
+          blockName = block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text;
+        }
+
+        // 获取图标和颜色
+        const iconProp = this.findProperty(block, '_icon');
+        const colorProp = this.findProperty(block, '_color');
+        let iconClass = 'ti ti-cube';
+        let color = '';
+
+        if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
+          iconClass = iconProp.value;
+        } else if (block.aliases && block.aliases.length > 0) {
+          const hideProp = this.findProperty(block, '_hide');
+          iconClass = hideProp && hideProp.value ? 'ti ti-file' : 'ti ti-hash';
+        }
+
+        if (colorProp && colorProp.type === 1) {
+          color = colorProp.value;
+        }
+
+        // 创建文档条目
+        console.log('[Folder Tree] 创建查询结果子项:', blockName, blockId);
+        const created = await this.core.createDocument(
+          blockName,
+          blockId,
+          queryFolderId,
+          'document',
+          iconClass,
+          color
+        );
         
-        if (block) {
-          if (block.aliases && block.aliases.length > 0) {
-            blockName = block.aliases[0];
-          } else if (block.text) {
-            blockName = block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text;
-          }
-
-          // 获取图标和颜色
-          const iconProp = this.findProperty(block, '_icon');
-          const colorProp = this.findProperty(block, '_color');
-          let iconClass = 'ti ti-cube';
-          let color = '';
-
-          if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
-            iconClass = iconProp.value;
-          } else if (block.aliases && block.aliases.length > 0) {
-            const hideProp = this.findProperty(block, '_hide');
-            iconClass = hideProp && hideProp.value ? 'ti ti-file' : 'ti ti-hash';
-          }
-
-          if (colorProp && colorProp.type === 1) {
-            color = colorProp.value;
-          }
-
-          // 创建文档条目
-          await this.core.createDocument(
-            blockName,
-            blockId,
-            queryFolderId,
-            'document',
-            iconClass,
-            color
-          );
+        if (created) {
+          console.log('[Folder Tree] 子项创建成功:', created.id);
+        } else {
+          console.error('[Folder Tree] 子项创建失败:', blockName, blockId);
         }
       }
 
       // 重新排序以匹配查询结果顺序
       const updatedChildren = this.core.getItemChildren(queryFolderId);
-      const orderedIds = results.map((id: number) => {
-        const child = updatedChildren.find(c => c.blockId === id.toString());
+      const orderedIds = resultBlocks.map((resultItem: any) => {
+        // 提取块ID
+        const blockId = typeof resultItem === 'object' && resultItem !== null && 'id' in resultItem
+          ? resultItem.id.toString()
+          : resultItem.toString();
+        const child = updatedChildren.find(c => c.blockId === blockId);
         return child?.id;
       }).filter(Boolean) as string[];
 
@@ -1807,8 +1937,14 @@ class FolderTreeRenderer {
         await this.core.reorderItems(queryFolderId, orderedIds);
       }
 
+      // 触发渲染以显示新创建的子项
+      this.render();
+
+      console.log('[Folder Tree] 查询块子项更新完成，已创建', orderedIds.length, '个子项');
+
     } catch (error) {
       console.error('[Folder Tree] 更新查询块子项失败:', error);
+      (window as any).orca.notify('error', `更新查询结果失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

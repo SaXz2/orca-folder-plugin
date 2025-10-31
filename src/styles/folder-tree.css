@@ -170,7 +170,7 @@
 
 /* 嵌套内容区域 */
 .folder-tree-items {
-    padding-left: 4px;
+    padding-left: 5px;
     margin: 1px 0;
     position: relative;
 }
@@ -201,7 +201,7 @@
     position: relative;
     /* 增加条目之间的垂直间距，避免拖拽判定同时命中上下两项 */
     margin: 2px 0;
-    margin-left: 5px;
+    /* 缩进由内联样式动态设置，不在这里设置固定的 margin-left */
 }
 
 /* 笔记本项目的特殊样式 - 加粗字体显示 */
