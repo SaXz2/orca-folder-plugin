@@ -1,0 +1,82 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Prepare release package
+        run: |
+          mkdir -p release/orca-folder-plugin
+          # 复制构建产物（符合 Quick-Start.md 要求的结构）
+          # dist/ 目录包含 index.js 和 style.css
+          cp -r dist release/orca-folder-plugin/
+          # 复制图标文件（必需文件）
+          if [ -f icon.svg ]; then
+            cp icon.svg release/orca-folder-plugin/icon.svg
+          elif [ -f icon.png ]; then
+            cp icon.png release/orca-folder-plugin/icon.png
+          fi
+          # 列出发布包内容（用于验证）
+          echo "Release package contents:"
+          ls -la release/orca-folder-plugin/
+          echo "Dist contents:"
+          ls -la release/orca-folder-plugin/dist/
+          
+      - name: Create release archives
+        run: |
+          cd release
+          tar -czf ../orca-folder-plugin.tar.gz orca-folder-plugin/
+          zip -r ../orca-folder-plugin.zip orca-folder-plugin/
+          cd ..
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            orca-folder-plugin.tar.gz
+            orca-folder-plugin.zip
+          tag_name: ${{ github.ref_name || github.event.inputs.version }}
+          name: Release ${{ github.ref_name || github.event.inputs.version }}
+          body: |
+            ## Orca 文档树插件
+            
+            发布包包含：
+            - `dist/index.js` - 编译后的插件代码
+            - `dist/style.css` - 样式文件
+            - `icon.svg` - 插件图标
+            
+            ### 安装方法
+            1. 解压 `orca-folder-plugin.tar.gz` 或 `orca-folder-plugin.zip`
+            2. 将 `orca-folder-plugin` 文件夹复制到 Orca Note 的 `plugins` 目录
+            3. 重启 Orca Note
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

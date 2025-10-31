@@ -1,6 +1,6 @@
 {
-  "name": "orca-plugin-template",
-  "version": "0.0.0",
+  "name": "orca-folder-plugin",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

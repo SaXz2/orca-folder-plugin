@@ -20,7 +20,11 @@ export default defineConfig(({ command }) => {
       },
       rollupOptions: {
         external: ["react", "valtio"],
+        output: {
+          assetFileNames: "style.css",
+        },
       },
+      cssCodeSplit: false,
     },
     plugins: [react(), externalGlobals({ react: "React", valtio: "Valtio" })],
   };
