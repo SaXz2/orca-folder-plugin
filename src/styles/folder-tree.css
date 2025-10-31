@@ -307,6 +307,15 @@
     padding: 0 var(--orca-spacing-xs);
 }
 
+/* 子块数量显示样式 */
+.folder-tree-item-count {
+    color: var(--orca-color-text-3);
+    font-size: var(--orca-fontsize-xs);
+    font-weight: normal;
+    margin-left: 4px;
+    opacity: 0.7;
+}
+
 
 .folder-tree-item-actions {
     display: flex;

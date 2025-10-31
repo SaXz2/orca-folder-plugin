@@ -201,7 +201,7 @@ class FolderTreeRenderer {
     const isSelected = this.selectedItems.has(item.id);
 
     // 创建项目头部
-    const headerEl = this.createItemHeader(item, isExpanded, isSelected, level, hasChildren);
+    const headerEl = this.createItemHeader(item, isExpanded, isSelected, level, hasChildren, childrenCount);
     itemEl.appendChild(headerEl);
 
     // 如果是展开的容器类型，添加子元素
@@ -216,7 +216,7 @@ class FolderTreeRenderer {
   /**
    * 创建项目头部元素
    */
-  private createItemHeader(item: any, isExpanded: boolean, isSelected: boolean, level: number, hasChildren: boolean): HTMLElement {
+  private createItemHeader(item: any, isExpanded: boolean, isSelected: boolean, level: number, hasChildren: boolean, childrenCount: number = 0): HTMLElement {
     const isContainer = item.type === 'notebook' || item.type === 'folder';
 
     // 统一使用 folder-tree-item 类，为不同类型添加特殊标识
@@ -240,11 +240,17 @@ class FolderTreeRenderer {
     // 项目图标（已经包含了完整的HTML结构）
     const itemIcon = this.getItemIcon(item);
 
+    // 构建名称显示：如果是根级项目且有子项，显示数量
+    let nameDisplay = this.escapeHtml(item.name);
+    if (isRoot && childrenCount > 0) {
+      nameDisplay = `${nameDisplay} <span class="folder-tree-item-count">(${childrenCount})</span>`;
+    }
+
     // 构建HTML - 统一使用 folder-tree-item-* 类
     header.innerHTML = `
       ${expandIcon}
       ${itemIcon}
-      <span class="folder-tree-item-name">${this.escapeHtml(item.name)}</span>
+      <span class="folder-tree-item-name">${nameDisplay}</span>
       <div class="folder-tree-item-actions">
         <button class="folder-tree-btn" title="重命名">
           <i class="ti ti-pencil"></i>
