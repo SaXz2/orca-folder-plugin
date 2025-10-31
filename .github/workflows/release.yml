@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史记录，包括标签
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -59,7 +61,7 @@ jobs:
           cd ..
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             orca-folder-plugin.tar.gz
@@ -81,6 +83,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          make_latest: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
