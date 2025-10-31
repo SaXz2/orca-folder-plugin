@@ -246,6 +246,31 @@ class FolderTreeCore {
   }
 
   /**
+   * 更新文档图标
+   */
+  async updateDocumentIcon(documentId: string, icon: string): Promise<boolean> {
+    if (!this.data) return false;
+    
+    const item = this.data.items.find(i => i.id === documentId);
+    if (!item) {
+      console.error('[Folder Tree] 文档不存在:', documentId);
+      return false;
+    }
+    
+    // 更新图标
+    item.icon = icon;
+    item.modified = new Date().toISOString();
+    
+    // 保存到持久化
+    const success = await this.persistence.updateItem(documentId, { icon });
+    if (success) {
+      this.notifyDataChange();
+    }
+    
+    return success;
+  }
+
+  /**
    * 移动文档（兼容性方法）
    */
   async moveDocument(

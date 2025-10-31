@@ -277,6 +277,26 @@ class FolderTreePersistence {
   }
 
   /**
+   * 更新项目的部分属性
+   */
+  async updateItem(itemId: string, updates: Partial<FolderItem>): Promise<boolean> {
+    try {
+      const data = await this.loadData();
+      const item = data.items.find(i => i.id === itemId);
+      if (!item) return false;
+
+      // 更新属性
+      Object.assign(item, updates);
+      item.modified = new Date().toISOString();
+
+      return await this.saveData(data);
+    } catch (error) {
+      console.error("[Folder Tree] 更新项目失败:", error);
+      return false;
+    }
+  }
+
+  /**
    * 移动项目
    */
   async moveItem(

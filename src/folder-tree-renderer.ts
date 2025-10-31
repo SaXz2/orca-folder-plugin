@@ -19,6 +19,7 @@ class FolderTreeRenderer {
   private selectedItems: Set<string> = new Set();
   private currentDraggedBlockId: string | null = null;
   private currentDraggedItem: { id: string; type: string } | null = null;
+  private updatingIcons: Set<string> = new Set(); // 正在更新图标的项目ID集合
 
   constructor(core: FolderTreeCore) {
     this.core = core;
@@ -275,6 +276,11 @@ class FolderTreeRenderer {
       } else {
         iconHtml = item.icon;
       }
+    } else if (item.blockId && item.type === 'document') {
+      // 如果有 blockId 但没有保存的图标，异步获取块信息并更新图标
+      this.updateIconForItemAsync(item);
+      // 先显示默认图标，等异步更新完成后再刷新
+      iconHtml = `<i class="ti ti-cube"></i>`;
     } else {
       // 默认使用立方体图标（文档）
       iconHtml = `<i class="ti ti-cube"></i>`;
@@ -312,6 +318,117 @@ class FolderTreeRenderer {
     const iconClass = `folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${shouldApplyBgColor ? ' has-color' : ''}`;
 
     return `<span class="${iconClass}"${iconStyle}>${iconHtml}</span>`;
+  }
+
+  /**
+   * 异步更新项目的图标（如果有 blockId 但没有保存的图标）
+   */
+  private async updateIconForItemAsync(item: any): Promise<void> {
+    // 避免重复更新
+    if (!item.blockId || item.icon || this.updatingIcons.has(item.id)) {
+      return;
+    }
+
+    // 标记为正在更新
+    this.updatingIcons.add(item.id);
+
+    try {
+      const block = await (window as any).orca.invokeBackend('get-block', item.blockId);
+      if (!block) {
+        return;
+      }
+
+      // 获取块属性
+      const iconProp = this.findProperty(block, '_icon');
+      const reprProp = this.findProperty(block, '_repr');
+
+      let iconClass = 'ti ti-cube';
+
+      // 优先使用 _icon 属性
+      if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
+        iconClass = iconProp.value;
+      } else if (block.aliases && block.aliases.length > 0) {
+        // 别名块：判断是页面还是标签
+        const hideProp = this.findProperty(block, '_hide');
+        iconClass = hideProp && hideProp.value ? 'ti ti-file' : 'ti ti-hash';
+      } else if (reprProp && reprProp.value && reprProp.value.type) {
+        // 根据 _repr 类型推断图标
+        iconClass = this.getIconByBlockType(reprProp.value.type, reprProp.value);
+      }
+
+      // 更新文档的图标
+      if (iconClass !== 'ti ti-cube' || item.icon !== iconClass) {
+        await this.core.updateDocumentIcon(item.id, iconClass);
+        // 重新渲染该项目
+        this.updateItemIconInDOM(item.id, iconClass);
+      }
+    } catch (error) {
+      console.error('[Folder Tree] 更新图标失败:', error, 'item:', item.id);
+    } finally {
+      // 移除更新标记
+      this.updatingIcons.delete(item.id);
+    }
+  }
+
+  /**
+   * 更新 DOM 中的图标显示（局部更新）
+   */
+  private updateItemIconInDOM(itemId: string, iconClass: string): void {
+    const itemEl = this.container?.querySelector(`[data-id="${itemId}"]`) as HTMLElement | null;
+    if (!itemEl) return;
+
+    const iconEl = itemEl.querySelector('.folder-tree-item-icon') as HTMLElement | null;
+    if (!iconEl) return;
+
+    // 获取原图标的样式（保留颜色等）
+    const originalStyle = iconEl.getAttribute('style') || '';
+    
+    // 更新图标 HTML
+    const iconHtml = `<i class="${iconClass}"></i>`;
+    const isTabler = iconClass.startsWith('ti ');
+    const wrapperClass = `folder-tree-item-icon${isTabler ? ' is-tabler' : ''}${iconEl.classList.contains('has-color') ? ' has-color' : ''}`;
+    
+    // 保留原有样式
+    iconEl.outerHTML = `<span class="${wrapperClass}"${originalStyle ? ` style="${originalStyle}"` : ''}>${iconHtml}</span>`;
+  }
+
+  /**
+   * 根据块类型获取图标（参考 tabsman 的逻辑）
+   * @param blockType - 块类型（从 _repr 属性读取）
+   * @param reprValue - _repr 属性的值，可能包含额外信息（如 heading 的 level）
+   * @returns 图标类名
+   */
+  private getIconByBlockType(blockType: string, reprValue?: any): string {
+    switch (blockType) {
+      case 'journal':
+        return 'ti ti-calendar-smile';
+      case 'heading':
+        // 根据标题级别选择不同的图标
+        const headingLevel = reprValue?.level || 1;
+        switch (headingLevel) {
+          case 1: return 'ti ti-h-1';
+          case 2: return 'ti ti-h-2';
+          case 3: return 'ti ti-h-3';
+          case 4: return 'ti ti-h-4';
+          default: return 'ti ti-h-1';
+        }
+      case 'text':
+        return 'ti ti-cube';
+      case 'ul':
+        return 'ti ti-list';
+      case 'ol':
+        return 'ti ti-list-numbers';
+      case 'task':
+        return 'ti ti-checkbox';
+      case 'code':
+        return 'ti ti-code';
+      case 'quote2':
+        return 'ti ti-blockquote';
+      case 'image':
+        return 'ti ti-photo';
+      default:
+        return 'ti ti-cube';
+    }
   }
 
   /**
@@ -1420,7 +1537,7 @@ class FolderTreeRenderer {
         console.log('[Folder Tree] 读取到颜色:', color, '块ID:', blockId);
       }
 
-      // 读取图标
+      // 读取图标：优先使用 _icon 属性，否则根据 _repr 类型推断
       if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
         iconClass = iconProp.value;
         console.log('[Folder Tree] 读取到自定义图标:', iconClass, '块ID:', blockId);
@@ -1429,6 +1546,11 @@ class FolderTreeRenderer {
         const hideProp = this.findProperty(block, '_hide');
         iconClass = hideProp && hideProp.value ? 'ti ti-file' : 'ti ti-hash';
         console.log('[Folder Tree] 别名块图标:', iconClass, 'hasHide:', !!hideProp, '块ID:', blockId);
+      } else if (reprProp && reprProp.value && reprProp.value.type) {
+        // 根据 _repr 类型推断图标（参考 tabsman 的逻辑）
+        const blockType = reprProp.value.type;
+        iconClass = this.getIconByBlockType(blockType, reprProp.value);
+        console.log('[Folder Tree] 根据块类型推断图标:', iconClass, '类型:', blockType, '块ID:', blockId);
       } else {
         // 普通块，默认立方体图标
         console.log('[Folder Tree] 普通块，使用默认图标:', iconClass, '块ID:', blockId);

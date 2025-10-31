@@ -514,12 +514,18 @@
   box-shadow: none !important;
 }
 
-.orca-sidebar-tab-options:not(.plugin-folder-tree-selected)~.orca-sidebar-tabs .orca-hideable:first-child{
+/* 文档树容器的显示/隐藏控制 - 使用特定类名避免与其他插件冲突 */
+.orca-sidebar-tab-options:not(.plugin-folder-tree-selected)~.orca-sidebar-tabs .plugin-folder-tree-hideable{
     display: none;
 }
 
-.orca-sidebar-tab-options.plugin-folder-tree-selected~.orca-sidebar-tabs .orca-hideable:not(:first-child){
-    display: none;
+.orca-sidebar-tab-options.plugin-folder-tree-selected~.orca-sidebar-tabs .plugin-folder-tree-hideable{
+    display: block;
+}
+
+/* 当文档树选中时，隐藏其他插件的容器（避免与其他插件冲突） */
+.orca-sidebar-tab-options.plugin-folder-tree-selected~.orca-sidebar-tabs .orca-hideable:not(.plugin-folder-tree-hideable){
+    display: none !important;
 }
 
 
