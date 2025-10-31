@@ -220,11 +220,6 @@
     text-align: center;
 }
 
-/* 子级项目的缩进 */
-.folder-tree-item.is-child {
-    margin-left: 5px;
-}
-
 .folder-tree-item:hover,
 .folder-tree-item.selected {
     background-color: var(--orca-color-gray-7);
