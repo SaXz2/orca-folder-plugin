@@ -13,6 +13,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 需要写入权限来创建 Release
+      actions: read    # 读取 Actions
     
     steps:
       - name: Checkout code
@@ -55,7 +58,7 @@ jobs:
           zip -r ../orca-folder-plugin.zip orca-folder-plugin/
           cd ..
 
-      - name: Upload release artifacts
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
@@ -77,6 +80,7 @@ jobs:
             3. 重启 Orca Note
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
