@@ -478,28 +478,70 @@ class FolderTreeRenderer {
 
     // 中键点击：仅切换展开/折叠
     // 使用 mousedown 和 auxclick 双重监听，确保在有滚动条时也能工作
+    let middleClickMousedownTime = 0;
     let middleClickHandled = false;
-    const handleMiddleClick = (e: MouseEvent) => {
+    
+    const handleMiddleClickMousedown = (e: MouseEvent) => {
       if (e.button === 1) {
-        // 防止重复触发：如果已经处理过，跳过
-        if (middleClickHandled) {
-          return;
-        }
         e.preventDefault();
         e.stopPropagation();
+        middleClickMousedownTime = Date.now();
+        middleClickHandled = false;
+      }
+    };
+    
+    const handleMiddleClickAuxclick = (e: MouseEvent) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 防止重复触发
+        if (middleClickHandled) {
+          middleClickMousedownTime = 0;
+          return;
+        }
+        
+        // 检查时间间隔：只有快速点击（<= 300ms）才处理，长按后释放不处理
+        const timeSinceMousedown = middleClickMousedownTime > 0 
+          ? Date.now() - middleClickMousedownTime 
+          : 0;
+        
+        if (timeSinceMousedown > 300) {
+          // 这是长按后的释放，不处理
+          middleClickMousedownTime = 0;
+          return;
+        }
+        
         middleClickHandled = true;
+        middleClickMousedownTime = 0;
         // 笔记本、文件夹（包括查询块）都可以折叠，即使没有子项
         if (item.type === 'notebook' || item.type === 'folder') {
           this.toggleItem(item.id);
         }
-        // 重置标志，以便下次点击
-        setTimeout(() => {
-          middleClickHandled = false;
-        }, 100);
       }
     };
-    header.addEventListener('mousedown', handleMiddleClick);
-    header.addEventListener('auxclick', handleMiddleClick);
+    
+    // 在 mousedown 中标记时间，但不处理（避免长按问题）
+    header.addEventListener('mousedown', handleMiddleClickMousedown);
+    // 在 auxclick 中处理（这是正常的中键点击）
+    header.addEventListener('auxclick', handleMiddleClickAuxclick);
+    
+    // 如果 auxclick 没有触发（例如在有滚动条时），在 mouseup 中处理
+    header.addEventListener('mouseup', (e: MouseEvent) => {
+      if (e.button === 1 && !middleClickHandled && middleClickMousedownTime > 0) {
+        const timeSinceMousedown = Date.now() - middleClickMousedownTime;
+        // 如果是快速点击（<= 300ms），处理它；长按后释放（> 300ms）不处理
+        if (timeSinceMousedown <= 300) {
+          e.preventDefault();
+          e.stopPropagation();
+          middleClickHandled = true;
+          if (item.type === 'notebook' || item.type === 'folder') {
+            this.toggleItem(item.id);
+          }
+        }
+        middleClickMousedownTime = 0;
+      }
+    });
 
     // 添加右键菜单
     header.oncontextmenu = (e) => {
@@ -773,25 +815,65 @@ class FolderTreeRenderer {
 
         // 中键点击：仅切换展开/折叠
         // 使用 mousedown 和 auxclick 双重监听，确保在有滚动条时也能工作
+        let middleClickMousedownTime = 0;
         let middleClickHandled = false;
-        const handleMiddleClick = (e: MouseEvent) => {
+        
+        const handleMiddleClickMousedown = (e: MouseEvent) => {
           if (e.button === 1) {
-            // 防止重复触发：如果已经处理过，跳过
-            if (middleClickHandled) {
-              return;
-            }
             e.preventDefault();
             e.stopPropagation();
-            middleClickHandled = true;
-            this.toggleItem(document.id);
-            // 重置标志，以便下次点击
-            setTimeout(() => {
-              middleClickHandled = false;
-            }, 100);
+            middleClickMousedownTime = Date.now();
+            middleClickHandled = false;
           }
         };
-        itemEl.addEventListener('mousedown', handleMiddleClick);
-        itemEl.addEventListener('auxclick', handleMiddleClick);
+        
+        const handleMiddleClickAuxclick = (e: MouseEvent) => {
+          if (e.button === 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // 防止重复触发
+            if (middleClickHandled) {
+              middleClickMousedownTime = 0;
+              return;
+            }
+            
+            // 检查时间间隔：只有快速点击（<= 300ms）才处理，长按后释放不处理
+            const timeSinceMousedown = middleClickMousedownTime > 0 
+              ? Date.now() - middleClickMousedownTime 
+              : 0;
+            
+            if (timeSinceMousedown > 300) {
+              // 这是长按后的释放，不处理
+              middleClickMousedownTime = 0;
+              return;
+            }
+            
+            middleClickHandled = true;
+            middleClickMousedownTime = 0;
+            this.toggleItem(document.id);
+          }
+        };
+        
+        // 在 mousedown 中标记时间，但不处理（避免长按问题）
+        itemEl.addEventListener('mousedown', handleMiddleClickMousedown);
+        // 在 auxclick 中处理（这是正常的中键点击）
+        itemEl.addEventListener('auxclick', handleMiddleClickAuxclick);
+        
+        // 如果 auxclick 没有触发（例如在有滚动条时），在 mouseup 中处理
+        itemEl.addEventListener('mouseup', (e: MouseEvent) => {
+          if (e.button === 1 && !middleClickHandled && middleClickMousedownTime > 0) {
+            const timeSinceMousedown = Date.now() - middleClickMousedownTime;
+            // 如果是快速点击（<= 300ms），处理它；长按后释放（> 300ms）不处理
+            if (timeSinceMousedown <= 300) {
+              e.preventDefault();
+              e.stopPropagation();
+              middleClickHandled = true;
+              this.toggleItem(document.id);
+            }
+            middleClickMousedownTime = 0;
+          }
+        });
       }
     }
 
