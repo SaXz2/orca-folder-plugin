@@ -13,7 +13,7 @@
 .plugin-folder-tree-content.orca-favorites-items {
     display: flex;
     flex-direction: column;
-    padding: 4px 0;
+    padding: 0px 0;
     height: auto;
     overflow-y: auto;
     flex: 1;
@@ -201,6 +201,7 @@
     position: relative;
     /* 增加条目之间的垂直间距，避免拖拽判定同时命中上下两项 */
     margin: 2px 0;
+    margin-left: 5px;
 }
 
 /* 笔记本项目的特殊样式 - 加粗字体显示 */
@@ -217,6 +218,11 @@
 .folder-tree-item.is-root .folder-tree-item-icon {
     margin-left: 0;
     text-align: center;
+}
+
+/* 子级项目的缩进 */
+.folder-tree-item.is-child {
+    margin-left: 5px;
 }
 
 .folder-tree-item:hover,

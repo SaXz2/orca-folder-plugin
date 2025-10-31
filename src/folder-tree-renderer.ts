@@ -336,7 +336,7 @@ class FolderTreeRenderer {
       // 特殊处理：文档嵌套文档的父块（folder 且有 blockId）应该跳转而不是展开
       if (item.type === 'folder' && item.blockId) {
         // 有子项的文档：跳转
-        (window as any).orca.nav.goTo('block', { blockId: item.blockId });
+        this.goToBlockWithAlias(item.blockId);
         return;
       }
 
@@ -347,7 +347,7 @@ class FolderTreeRenderer {
         this.toggleItem(item.id);
       } else if (item.blockId) {
         // 有 blockId 的文档：跳转
-        (window as any).orca.nav.goTo('block', { blockId: item.blockId });
+        this.goToBlockWithAlias(item.blockId);
       }
     };
 
@@ -649,7 +649,7 @@ class FolderTreeRenderer {
         // 如果是由文档转成的“父文档”（有 blockId），点击应跳转而不是折叠
         if (document.blockId) {
           this.selectItem(document.id);
-          (window as any).orca.nav.goTo('block', { blockId: document.blockId });
+          this.goToBlockWithAlias(document.blockId);
         } else {
           this.toggleItem(document.id);
           this.selectItem(document.id);
@@ -658,7 +658,7 @@ class FolderTreeRenderer {
       }
       this.selectItem(document.id);
       if (document.blockId) {
-        (window as any).orca.nav.goTo('block', { blockId: document.blockId });
+        this.goToBlockWithAlias(document.blockId);
       }
     };
 
@@ -1846,6 +1846,51 @@ class FolderTreeRenderer {
     return div.innerHTML;
   }
 
+  /**
+   * 跳转到块（使用原生 API，避免重复打开）
+   */
+  private goToBlockWithAlias(blockId: string | number): void {
+    const blockIdNum = typeof blockId === 'number' ? blockId : parseInt(String(blockId), 10);
+    if (isNaN(blockIdNum)) return;
+
+    const orca = (window as any).orca;
+    
+    // 递归查找已打开该块的面板
+    const findPanelWithBlock = (node: any): string | null => {
+      if (!node) return null;
+      
+      // 如果是视图面板且显示的是该块
+      if (node.type === 'view' && 
+          node.view === 'block' && 
+          node.viewArgs && 
+          node.viewArgs.blockId === blockIdNum) {
+        return node.id;
+      }
+      
+      // 递归查找子节点
+      if (node.children && Array.isArray(node.children)) {
+        for (const child of node.children) {
+          const found = findPanelWithBlock(child);
+          if (found) return found;
+        }
+      }
+      
+      return null;
+    };
+    
+    // 查找已存在的面板
+    const existingPanelId = findPanelWithBlock(orca.state.panels);
+    
+    if (existingPanelId) {
+      // 如果已存在，切换到该面板，避免重复打开
+      orca.nav.switchFocusTo(existingPanelId);
+    } else {
+      // 如果不存在，使用原生方式打开
+      orca.nav.goTo('block', { blockId: blockIdNum });
+    }
+  }
+
+
   private findProperty(block: any, propertyName: string): any {
     if (!block.properties || !Array.isArray(block.properties)) {
       return null;
@@ -2099,6 +2144,13 @@ class FolderTreeRenderer {
 
     document.body.appendChild(menu);
 
+    // 检查是否是包含于块（有 backRefs）并添加菜单项（异步检查，动态添加）
+    const item = this.core.getItemById(itemId);
+    if (item && item.blockId) {
+      // 异步检查是否有 backRefs，然后动态添加菜单项
+      this.checkAndAddContainedInMenu(menuItems, item.blockId, menu);
+    }
+
     // 点击其他地方关闭菜单
     const closeMenu = (event: MouseEvent) => {
       if (!menu.contains(event.target as Node)) {
@@ -2118,6 +2170,216 @@ class FolderTreeRenderer {
     if (menuRect.bottom > window.innerHeight) {
       menu.style.top = `${window.innerHeight - menuRect.height - 10}px`;
     }
+  }
+
+  /**
+   * 检查并添加包含于菜单项
+   */
+  private async checkAndAddContainedInMenu(
+    menuItems: Array<{ label: string; icon: string; action: () => void; className?: string }>,
+    blockId: string,
+    menu: HTMLElement
+  ): Promise<void> {
+    try {
+      const block = await (window as any).orca.invokeBackend('get-block', blockId);
+      if (block && block.backRefs && block.backRefs.length > 0) {
+        const menuItem = {
+          label: '显示包含于列表',
+          icon: '🔗',
+          action: () => {
+            this.showContainedInList(blockId);
+          }
+        };
+        menuItems.push(menuItem);
+        
+        // 动态添加菜单项到已显示的菜单中
+        const menuItemEl = document.createElement('div');
+        menuItemEl.className = 'folder-tree-context-menu-item';
+        menuItemEl.innerHTML = `${menuItem.icon} ${menuItem.label}`;
+        menuItemEl.onclick = () => {
+          menuItem.action();
+          menu.remove();
+        };
+        // 插入到删除选项之前
+        const deleteItem = menu.querySelector('.danger');
+        if (deleteItem) {
+          menu.insertBefore(menuItemEl, deleteItem);
+        } else {
+          menu.appendChild(menuItemEl);
+        }
+      }
+    } catch (error) {
+      console.error('[Folder Tree] 检查包含于块失败:', error);
+    }
+  }
+
+  /**
+   * 显示包含于列表
+   */
+  private async showContainedInList(blockId: string): Promise<void> {
+    try {
+      const block = await (window as any).orca.invokeBackend('get-block', blockId);
+      if (!block || !block.backRefs || block.backRefs.length === 0) {
+        (window as any).orca.notify('info', '该块没有被其他块包含');
+        return;
+      }
+
+      // 获取所有包含于块的ID
+      const containedInBlockIds = block.backRefs.map((ref: any) => ref.from).filter((id: any) => id != null);
+      
+      if (containedInBlockIds.length === 0) {
+        (window as any).orca.notify('info', '该块没有被其他块包含');
+        return;
+      }
+
+      // 批量获取块信息
+      const blocks = await (window as any).orca.invokeBackend('get-blocks', containedInBlockIds);
+      if (!blocks || blocks.length === 0) {
+        (window as any).orca.notify('info', '无法获取包含于块信息');
+        return;
+      }
+
+      // 创建对话框显示包含于列表
+      this.showContainedInDialog(blocks);
+    } catch (error) {
+      console.error('[Folder Tree] 显示包含于列表失败:', error);
+      (window as any).orca.notify('error', '显示包含于列表失败');
+    }
+  }
+
+  /**
+   * 显示包含于列表对话框
+   */
+  private showContainedInDialog(blocks: any[]): void {
+    // 移除已存在的对话框
+    const existingDialog = document.querySelector('.folder-tree-contained-in-dialog');
+    if (existingDialog) {
+      existingDialog.remove();
+    }
+
+    const dialog = document.createElement('div');
+    dialog.className = 'folder-tree-contained-in-dialog';
+    dialog.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10001;
+    `;
+
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+      background: ${isDark ? '#1a1a1a' : '#ffffff'};
+      border: 1px solid ${isDark ? '#404040' : '#dee2e6'};
+      border-radius: 8px;
+      padding: 20px;
+      min-width: 400px;
+      max-width: 600px;
+      max-height: 70vh;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+    `;
+
+    const title = document.createElement('h3');
+    title.textContent = '包含于列表';
+    title.style.cssText = `
+      margin: 0 0 16px 0;
+      color: ${isDark ? '#ffffff' : '#212529'};
+      font-size: 16px;
+      font-weight: 600;
+    `;
+
+    const list = document.createElement('div');
+    list.style.cssText = `
+      flex: 1;
+      overflow-y: auto;
+      max-height: 50vh;
+    `;
+
+    // 渲染块列表
+    blocks.forEach(block => {
+      const item = document.createElement('div');
+      item.style.cssText = `
+        padding: 8px 12px;
+        border-radius: 4px;
+        margin-bottom: 4px;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+        background: ${isDark ? '#2d2d2d' : '#f8f9fa'};
+        color: ${isDark ? '#ffffff' : '#212529'};
+      `;
+
+      item.onmouseenter = () => {
+        item.style.background = isDark ? '#404040' : '#e9ecef';
+      };
+
+      item.onmouseleave = () => {
+        item.style.background = isDark ? '#2d2d2d' : '#f8f9fa';
+      };
+
+      // 获取块名称
+      let blockName = `块 ${block.id}`;
+      if (block.aliases && block.aliases.length > 0) {
+        blockName = block.aliases[0];
+      } else if (block.text) {
+        blockName = block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text;
+      }
+
+      item.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <i class="ti ti-cube" style="font-size: 16px;"></i>
+          <span style="flex: 1;">${this.escapeHtml(blockName)}</span>
+        </div>
+      `;
+
+      // 点击跳转到块
+      item.onclick = () => {
+        this.goToBlockWithAlias(block.id);
+        dialog.remove();
+      };
+
+      list.appendChild(item);
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '关闭';
+    closeBtn.style.cssText = `
+      padding: 8px 16px;
+      border: 1px solid ${isDark ? '#404040' : '#dee2e6'};
+      border-radius: 4px;
+      background: ${isDark ? '#2d2d2d' : '#ffffff'};
+      color: ${isDark ? '#ffffff' : '#212529'};
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 16px;
+      align-self: flex-end;
+    `;
+
+    closeBtn.onclick = () => {
+      dialog.remove();
+    };
+
+    content.appendChild(title);
+    content.appendChild(list);
+    content.appendChild(closeBtn);
+    dialog.appendChild(content);
+
+    // 点击背景关闭
+    dialog.onclick = (e: MouseEvent) => {
+      if (e.target === dialog) {
+        dialog.remove();
+      }
+    };
+
+    document.body.appendChild(dialog);
   }
 }
 
