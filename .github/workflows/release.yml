@@ -41,6 +41,10 @@ jobs:
           # 复制构建产物（符合 Quick-Start.md 要求的结构）
           # dist/ 目录包含 index.js 和 style.css
           cp -r dist release/orca-folder-plugin/
+          # 复制 package.json（必需文件，含 version 字段）
+          cp package.json release/orca-folder-plugin/package.json
+          # 复制 LICENSE（必需文件）
+          cp LICENSE release/orca-folder-plugin/LICENSE
           # 复制图标文件（必需文件）
           if [ -f icon.svg ]; then
             cp icon.svg release/orca-folder-plugin/icon.svg
@@ -74,6 +78,8 @@ jobs:
             发布包包含：
             - `dist/index.js` - 编译后的插件代码
             - `dist/style.css` - 样式文件
+            - `package.json` - 插件元数据（含版本号）
+            - `LICENSE` - MIT 开源协议
             - `icon.svg` - 插件图标
             
             ### 安装方法
