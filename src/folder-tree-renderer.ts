@@ -34,42 +34,107 @@ class FolderTreeRenderer {
   private setupGlobalDragListener(): void {
     document.addEventListener('dragstart', (e) => {
       const target = e.target as HTMLElement;
-      
-      // 检查是否是拖拽块的手柄
-      if (target.classList.contains('orca-block-handle') || target.closest('.orca-block-handle')) {
-        const handleElement = target.classList.contains('orca-block-handle') 
-          ? target 
-          : target.closest('.orca-block-handle');
-        
-        if (handleElement) {
-          // 查找父元素 .orca-block.orca-container
-          let blockContainer = handleElement.parentElement;
-          
-          while (blockContainer && !blockContainer.classList.contains('orca-block')) {
-            blockContainer = blockContainer.parentElement;
-          }
-          
-          if (blockContainer && blockContainer.classList.contains('orca-container')) {
-            const blockId = blockContainer.getAttribute('data-id');
-            
-            if (blockId && /^\d+$/.test(blockId)) {
-              console.log('[Folder Tree] Captured dragging block ID:', blockId);
-              this.currentDraggedBlockId = blockId;
-              
-              // 设置拖拽数据
-              if (e.dataTransfer) {
-                e.dataTransfer.setData('text/plain', blockId);
-              }
+
+      // 检查是否是拖拽块或手柄
+      const blockEl = target.closest('.orca-block[data-id]') || target.closest('[data-id]');
+      if (blockEl) {
+        const blockId = blockEl.getAttribute('data-id') || blockEl.getAttribute('data-block-id');
+        if (blockId && /^\d+$/.test(blockId)) {
+          console.log('[Folder Tree] Captured dragging block ID:', blockId);
+          this.currentDraggedBlockId = blockId;
+          try {
+            if (e.dataTransfer) {
+              e.dataTransfer.setData('text/plain', blockId);
             }
-          }
+          } catch {}
         }
       }
     }, true);
 
-    // 拖拽结束时清除
+    // 拖拽结束时清理（稍作延迟避免 drop 时已被清除）
     document.addEventListener('dragend', () => {
-      this.currentDraggedBlockId = null;
+      setTimeout(() => {
+        this.currentDraggedBlockId = null;
+      }, 150);
     }, true);
+  }
+
+  /**
+   * 从拖拽事件中提取 Orca 块 ID 列表
+   */
+  public extractBlockIdsFromDropEvent(e: DragEvent): string[] {
+    const blockIds: string[] = [];
+
+    // 1. 尝试从 Orca 原生的 dataTransfer 类型中解析 (orca/<repoId>)
+    if (e.dataTransfer) {
+      try {
+        const types = Array.from(e.dataTransfer.types || []);
+        for (const type of types) {
+          if (type.startsWith('orca/')) {
+            const raw = e.dataTransfer.getData(type);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed && Array.isArray(parsed.blocks)) {
+                for (const b of parsed.blocks) {
+                  if (b != null) blockIds.push(b.toString());
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Folder Tree] 解析 Orca 原生拖拽数据失败:', err);
+      }
+
+      // 2. 尝试从 text/plain 中获取纯数字块ID
+      if (blockIds.length === 0) {
+        try {
+          const text = e.dataTransfer.getData('text/plain')?.trim();
+          if (text && /^\d+$/.test(text)) {
+            blockIds.push(text);
+          }
+        } catch {}
+      }
+    }
+
+    // 3. 回退到全局捕获的块ID
+    if (blockIds.length === 0 && this.currentDraggedBlockId && /^\d+$/.test(this.currentDraggedBlockId)) {
+      blockIds.push(this.currentDraggedBlockId);
+    }
+
+    // 4. 回退到当前选中的块
+    if (blockIds.length === 0) {
+      const selected = document.querySelectorAll('.orca-block.orca-selected[data-id], .orca-block[data-id].orca-selected');
+      selected.forEach(el => {
+        const id = el.getAttribute('data-id');
+        if (id && /^\d+$/.test(id) && !blockIds.includes(id)) {
+          blockIds.push(id);
+        }
+      });
+    }
+
+    return blockIds;
+  }
+
+  /**
+   * 递归展开指定项目及其所有祖先目录
+   */
+  public async expandItemAndParents(itemId: string): Promise<void> {
+    let currentId: string | null = itemId;
+    let changed = false;
+
+    while (currentId) {
+      if (!this.expandedItems.has(currentId)) {
+        this.expandedItems.add(currentId);
+        changed = true;
+      }
+      const item = this.core.getItemById(currentId);
+      currentId = item?.parentId || null;
+    }
+
+    if (changed) {
+      await this.core.setExpandedState(Array.from(this.expandedItems));
+    }
   }
 
   async initialize(container: HTMLElement): Promise<void> {
@@ -963,7 +1028,9 @@ class FolderTreeRenderer {
     // 设置整个内容区域为拖拽接收区
     content.ondragover = (e) => {
       e.preventDefault();
-      e.dataTransfer!.dropEffect = 'copy';
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
     };
 
     // 使用捕获阶段处理，允许拖到根级空白区域创建根级文档
@@ -984,21 +1051,21 @@ class FolderTreeRenderer {
         return;
       }
 
-      // 获取拖拽数据
-      const draggedData = e.dataTransfer!.getData('text/plain');
-      const blockId = this.currentDraggedBlockId || (draggedData && /^\d+$/.test(draggedData) ? draggedData : null);
-      
-      // 如果从编辑区拖拽块到根级空白区域，创建根级文档
-      if (blockId && /^\d+$/.test(blockId)) {
+      // 获取块ID列表
+      const blockIds = this.extractBlockIdsFromDropEvent(e);
+      if (blockIds.length > 0) {
         e.preventDefault();
-        e.stopPropagation(); // 阻止子元素处理
-        console.log('[Folder Tree] Dropping block to root level, creating root document:', blockId);
-        await this.createDocumentFromBlock(blockId, null);
+        e.stopPropagation();
+        console.log('[Folder Tree] Dropping blocks to root level:', blockIds);
+        for (const blockId of blockIds) {
+          await this.createDocumentFromBlock(blockId, null);
+        }
         this.currentDraggedBlockId = null;
         return;
       }
 
       // 如果是文档ID（document_ 开头），允许移动到根级（用于提升文档层级）
+      const draggedData = e.dataTransfer?.getData('text/plain');
       if (draggedData && (draggedData.startsWith('document_') || draggedData.startsWith('folder_'))) {
         const draggedDoc = this.core.getDocumentById(draggedData);
         if (draggedDoc && draggedDoc.parentId !== null) {
@@ -1320,23 +1387,28 @@ class FolderTreeRenderer {
     childrenEl.ondragover = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      try { e.dataTransfer!.dropEffect = 'move'; } catch {}
+      try { e.dataTransfer!.dropEffect = 'copy'; } catch {}
     };
 
     childrenEl.ondrop = async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const dataText = e.dataTransfer!.getData('text/plain');
-      if (!dataText) {
-        // 支持从 Orca 拖入块到该父级
-        if (this.currentDraggedBlockId) {
-          await this.createDocumentFromBlock(this.currentDraggedBlockId, parentId);
-          this.currentDraggedBlockId = null;
+      
+      // 检查是否从 Orca 拖入块到该父级
+      const blockIds = this.extractBlockIdsFromDropEvent(e);
+      if (blockIds.length > 0) {
+        for (const blockId of blockIds) {
+          await this.createDocumentFromBlock(blockId, parentId);
         }
+        this.currentDraggedBlockId = null;
         return;
       }
+
+      const dataText = e.dataTransfer?.getData('text/plain');
+      if (!dataText) return;
+
       // 文档拖入到该父级（用于从子文件夹拖回上一级）
-      if (dataText.startsWith('document_')) {
+      if (dataText.startsWith('document_') || dataText.startsWith('folder_')) {
         const draggedDoc = this.core.getDocumentById(dataText);
         if (draggedDoc && draggedDoc.parentId !== parentId) {
           const ok = await this.core.moveDocument(dataText, parentId);
@@ -1756,16 +1828,15 @@ class FolderTreeRenderer {
     targetType: string,
     insertIntent?: 'before' | 'after'
   ): Promise<void> {
-    // 优先使用捕获的块ID
-    let draggedId = this.currentDraggedBlockId || e.dataTransfer!.getData('text/plain');
-    if (!draggedId || draggedId === targetId) return;
+    const blockIds = this.extractBlockIdsFromDropEvent(e);
+    const rawData = e.dataTransfer?.getData('text/plain') || '';
+    const draggedId = rawData;
 
-    console.log('[Folder Tree] handleDrop START - draggedId:', draggedId, 'targetId:', targetId, 'targetType:', targetType, 'insertIntent:', insertIntent);
-
-    // 处理项目排序（统一处理所有类型）
-    if (draggedId.startsWith('notebook_') || draggedId.startsWith('document_') || draggedId.startsWith('folder_')) {
-      console.log('[Folder Tree] Reordering items');
-      const success = await this.reorderItems(draggedId, targetId, insertIntent);
+    // 处理内部项目重排或移动（notebook_ / document_ / folder_）
+    if (rawData.startsWith('notebook_') || rawData.startsWith('document_') || rawData.startsWith('folder_')) {
+      if (rawData === targetId) return;
+      console.log('[Folder Tree] Reordering internal items');
+      const success = await this.reorderItems(rawData, targetId, insertIntent);
       if (success) {
         (window as any).orca.notify('success', '项目排序成功');
       } else {
@@ -1775,83 +1846,48 @@ class FolderTreeRenderer {
       return;
     }
 
-    // 检查是否是从 Orca 拖拽的块（纯数字ID）
-    if (/^\d+$/.test(draggedId)) {
-      console.log('[Folder Tree] Creating document from Orca block:', draggedId, 'targetType:', targetType, 'insertIntent:', insertIntent);
-      // 有插入意图：在目标同级创建并排序
-      if (insertIntent) {
-        console.log('[Folder Tree] Block drop with insertIntent - targetType:', targetType);
-        const targetDoc = this.core.getDocumentById(targetId);
-        console.log('[Folder Tree] targetDoc:', targetDoc);
-        
-        // 如果是拖到笔记本上，直接创建在笔记本中并排序到首/尾
-        if (targetType === 'notebook') {
-          console.log('[Folder Tree] Dropping block onto notebook with insertIntent');
-          
-          const newDocId = await this.createDocumentFromBlock(draggedId, targetId);
-          console.log('[Folder Tree] Created document:', newDocId);
-          
-          if (newDocId) {
-            // createDocument 后数据已重新加载，需要重新获取 notebook
-            const notebook = this.core.getNotebookById(targetId);
-            console.log('[Folder Tree] notebook after create:', notebook);
-            
-            // 根据 insertIntent 决定插入位置
-            const insertIndex = insertIntent === 'before' ? 0 : notebook?.children?.length || 0;
-            console.log('[Folder Tree] Moving document to index:', insertIndex, 'current notebook.children:', notebook?.children);
-            
-            // 文档已经被 createDocument 添加到列表末尾了，需要重新排序
-            // 先从列表中移除（如果存在）
-            const currentIndex = notebook?.children?.indexOf(newDocId) ?? -1;
-            console.log('[Folder Tree] Current index in notebook.children:', currentIndex);
-            
-            if (notebook && notebook.children && currentIndex !== -1) {
-              notebook.children.splice(currentIndex, 1);
+    // 处理从 Orca 编辑区拖拽的块
+    if (blockIds.length > 0) {
+      console.log('[Folder Tree] Dropping Orca blocks into target:', blockIds, 'targetId:', targetId, 'targetType:', targetType, 'insertIntent:', insertIntent);
+      for (const blockId of blockIds) {
+        if (insertIntent) {
+          const targetDoc = this.core.getDocumentById(targetId);
+          if (targetType === 'notebook') {
+            const newDocId = await this.createDocumentFromBlock(blockId, targetId);
+            if (newDocId) {
+              const notebook = this.core.getNotebookById(targetId);
+              const insertIndex = insertIntent === 'before' ? 0 : (notebook?.children?.length || 0);
+              const currentIndex = notebook?.children?.indexOf(newDocId) ?? -1;
+              if (notebook?.children && currentIndex !== -1) {
+                notebook.children.splice(currentIndex, 1);
+              }
+              if (notebook && notebook.children) {
+                notebook.children.splice(insertIndex, 0, newDocId);
+                const success = await this.core.reorderDocuments(targetId, notebook.children);
+                if (success) {
+                  (window as any).orca.notify('success', '移动成功');
+                  this.render();
+                }
+              }
             }
-
-            // 插入到指定位置
-            if (notebook && notebook.children) {
-              notebook.children.splice(insertIndex, 0, newDocId);
-              console.log('[Folder Tree] After reordering, notebook.children:', notebook.children);
-
-              // 使用 reorderDocuments 来保存排序（它会更新 order 字段并保存）
-              const success = await this.core.reorderDocuments(targetId, notebook.children);
-              console.log('[Folder Tree] Reorder result:', success);
-              
-              if (success) {
-                (window as any).orca.notify('success', '移动成功');
+          } else {
+            const parentForNew = targetType === 'document' ? (targetDoc?.parentId || '') : targetId;
+            if (parentForNew) {
+              const newDocId = await this.createDocumentFromBlock(blockId, parentForNew);
+              if (newDocId) {
+                const parentForOrder = targetDoc?.parentId || parentForNew;
+                await this.reorderDocuments(newDocId, targetId, parentForOrder);
                 this.render();
-    } else {
-                (window as any).orca.notify('error', '文档排序失败');
               }
             }
           }
-          this.currentDraggedBlockId = null;
-          return;
+        } else {
+          // 无插入意图：嵌入目标项内部
+          if (targetType === 'document') {
+            await this.core.ensureFolder(targetId);
+          }
+          await this.createDocumentFromBlock(blockId, targetId);
         }
-        
-        // 拖到文档上的情况
-        const parentForNew = targetType === 'document' ? (targetDoc?.parentId || '') : targetId;
-        console.log('[Folder Tree] parentForNew:', parentForNew);
-        if (!parentForNew) {
-          console.log('[Folder Tree] No parentForNew, returning');
-          return;
-        }
-        const newDocId = await this.createDocumentFromBlock(draggedId, parentForNew);
-        console.log('[Folder Tree] Created document in parent:', newDocId);
-        if (newDocId) {
-          const parentForOrder = targetDoc?.parentId || parentForNew;
-          console.log('[Folder Tree] Reordering - newDocId:', newDocId, 'targetId:', targetId, 'parentForOrder:', parentForOrder);
-          await this.reorderDocuments(newDocId, targetId, parentForOrder);
-          this.render();
-        }
-      } else {
-        // 无插入意图：嵌入目标项内部
-        console.log('[Folder Tree] Block drop without insertIntent - embedding');
-        if (targetType === 'document') {
-          await this.core.ensureFolder(targetId);
-        }
-        await this.createDocumentFromBlock(draggedId, targetId);
       }
       this.currentDraggedBlockId = null;
       return;
@@ -2009,6 +2045,27 @@ class FolderTreeRenderer {
   private async createDocumentFromBlock(blockId: string, targetId: string | null): Promise<string | null> {
     try {
       console.log('[Folder Tree] 正在通过API获取块信息:', blockId);
+
+      // 防重检查：目标目录下是否已存在具有相同 blockId 的文档
+      if (targetId) {
+        const existingChildren = this.core.getItemChildren(targetId);
+        const duplicate = existingChildren.find(item => item.blockId === blockId);
+        if (duplicate) {
+          console.warn('[Folder Tree] 目标目录下已存在该块:', blockId, duplicate.name);
+          (window as any).orca.notify('info', `「${duplicate.name}」已存在于目标目录中，无需重复添加`);
+          await this.expandItemAndParents(targetId);
+          this.render();
+          return duplicate.id;
+        }
+      } else {
+        const rootItems = this.core.getRootItems();
+        const duplicate = rootItems.find(item => item.blockId === blockId);
+        if (duplicate) {
+          console.warn('[Folder Tree] 根级目录下已存在该块:', blockId, duplicate.name);
+          (window as any).orca.notify('info', `「${duplicate.name}」已存在于根级目录中，无需重复添加`);
+          return duplicate.id;
+        }
+      }
 
       // 使用 Orca API 获取块信息，确保能正确处理别名块
       const block = await (window as any).orca.invokeBackend('get-block', blockId);
@@ -2845,8 +2902,22 @@ class FolderTreeRenderer {
 
     const menuItems: Array<{ label: string; icon: string; action: () => void; className?: string }> = [];
 
-    // 笔记本和文件夹可以创建子文件夹
+    // 笔记本和文件夹可以创建子文件夹与清理重复项
     if (itemType === 'notebook' || itemType === 'folder') {
+      menuItems.push({
+        label: '清理重复项',
+        icon: '🧹',
+        action: async () => {
+          const count = await this.core.deduplicateItems(itemId);
+          if (count > 0) {
+            (window as any).orca.notify('success', `已清理 ${count} 个重复项`);
+            this.render();
+          } else {
+            (window as any).orca.notify('info', '当前目录下未发现重复项');
+          }
+        }
+      });
+
       menuItems.push({
         label: '新建文件夹',
         icon: '📂',

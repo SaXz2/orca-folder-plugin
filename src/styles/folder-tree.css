@@ -538,9 +538,157 @@
     display: none !important;
 }
 
+/* 目录选择弹窗样式 */
+.folder-tree-picker-overlay {
+    z-index: 10001;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+}
 
+.folder-tree-picker-dialog {
+    width: 440px;
+    max-width: 90vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 20px;
+    border-radius: var(--orca-radius-lg, 8px);
+    background: var(--orca-color-bg-1, #fff);
+    border: 1px solid var(--orca-color-border-2, #e0e0e0);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+}
 
+.folder-tree-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
 
+.folder-tree-picker-header .folder-tree-dialog-title {
+    margin-bottom: 2px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.folder-tree-picker-subtitle {
+    font-size: 12px;
+    color: var(--orca-color-text-3, #888);
+}
+
+.folder-tree-picker-close-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 16px;
+    color: var(--orca-color-text-3, #888);
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.folder-tree-picker-close-btn:hover {
+    color: var(--orca-color-text-1, #333);
+    background: var(--orca-color-fill-1, rgba(0, 0, 0, 0.05));
+}
+
+.folder-tree-picker-search-container {
+    margin-bottom: 12px;
+}
+
+.folder-tree-picker-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px;
+}
+
+.folder-tree-picker-list {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 340px;
+    min-height: 150px;
+    border: 1px solid var(--orca-color-border-2, #e0e0e0);
+    border-radius: var(--orca-radius-sm, 4px);
+    background: var(--orca-color-bg-2, #fafafa);
+    padding: 4px 0;
+}
+
+.folder-tree-picker-item {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+    border-left: 3px solid transparent;
+}
+
+.folder-tree-picker-item:hover {
+    background-color: var(--orca-color-fill-1, rgba(0, 0, 0, 0.04));
+}
+
+.folder-tree-picker-item.selected {
+    background-color: color-mix(in oklab, var(--orca-color-primary-5, #1890ff) 12%, transparent);
+    border-left-color: var(--orca-color-primary-5, #1890ff);
+}
+
+.folder-tree-picker-item-icon {
+    font-size: 14px;
+    margin-right: 8px;
+    color: var(--orca-color-text-2, #666);
+    flex-shrink: 0;
+}
+
+.folder-tree-picker-item.selected .folder-tree-picker-item-icon {
+    color: var(--orca-color-primary-5, #1890ff);
+}
+
+.folder-tree-picker-item-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.folder-tree-picker-item-name {
+    font-size: 13px;
+    color: var(--orca-color-text-1, #222);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.folder-tree-picker-item-path {
+    font-size: 11px;
+    color: var(--orca-color-text-3, #888);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.folder-tree-picker-item-count {
+    font-size: 11px;
+    color: var(--orca-color-text-3, #888);
+    background: var(--orca-color-fill-2, rgba(0, 0, 0, 0.06));
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+.folder-tree-picker-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--orca-color-text-3, #888);
+    font-size: 12px;
+}
+
+.folder-tree-picker-footer {
+    margin-top: 14px;
+}
 
 @media (prefers-color-scheme: dark){
 

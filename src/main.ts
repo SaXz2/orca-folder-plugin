@@ -1,6 +1,7 @@
 import { setupL10N, t } from "./libs/l10n";
 import zhCN from "./translations/zhCN";
-import { FolderTreeCore } from "./folder-tree-core";
+import { FolderTreeCore, type DirectoryNode } from "./folder-tree-core";
+import { showDirectoryPickerDialog } from "./directory-picker";
 // @ts-ignore
 import { injectFolderTreeShell, cleanupFolderTreeShell } from "./folder-tree-container.js";
 import "./folder-tree-renderer";
@@ -60,45 +61,201 @@ export async function load(_name: string) {
  * 注册块菜单命令
  */
 function registerBlockMenuCommands() {
+  const React = (window as any).React;
+
+  // 核心添加块处理逻辑，包含防重与结果提示
+  const handleAddBlocksToTarget = async (
+    targetBlockIds: string[],
+    targetDirId: string,
+    targetDirName: string,
+    closeMenu?: () => void
+  ) => {
+    if (closeMenu) closeMenu();
+    if (!core) {
+      orca.notify("error", "文档树插件未初始化");
+      return;
+    }
+
+    const uniqueBlockIds = Array.from(new Set(targetBlockIds.filter(id => Boolean(id))));
+    if (uniqueBlockIds.length === 0) return;
+
+    // 检查目标目录下已存在的块（防重）
+    const existingChildren = core.getItemChildren(targetDirId);
+    const existingBlockIds = new Set(
+      existingChildren.filter(item => item.blockId).map(item => item.blockId!)
+    );
+
+    const toAdd = uniqueBlockIds.filter(id => !existingBlockIds.has(id));
+    const duplicates = uniqueBlockIds.filter(id => existingBlockIds.has(id));
+
+    if (toAdd.length === 0) {
+      const msg = uniqueBlockIds.length === 1
+        ? `该块已存在于「${targetDirName}」中，无需重复添加`
+        : `所选 ${uniqueBlockIds.length} 个块均已存在于「${targetDirName}」中，无需重复添加`;
+      orca.notify("info", msg);
+      if (renderer) {
+        if (typeof renderer.expandItemAndParents === 'function') {
+          await renderer.expandItemAndParents(targetDirId);
+        }
+        if (typeof renderer.render === 'function') {
+          renderer.render();
+        }
+      }
+      return;
+    }
+
+    let successCount = 0;
+    for (const bId of toAdd) {
+      const res = await core.addDocumentToDirectory(bId, targetDirId);
+      if (res && (res.success || res.item)) {
+        successCount++;
+      }
+    }
+
+    if (successCount > 0) {
+      let msg = "";
+      if (duplicates.length > 0) {
+        msg = `已添加 ${successCount} 个块到「${targetDirName}」（跳过 ${duplicates.length} 个已存在块）`;
+      } else {
+        msg = successCount === 1
+          ? `已添加到「${targetDirName}」`
+          : `已添加 ${successCount} 个块到「${targetDirName}」`;
+      }
+      orca.notify("success", msg);
+
+      if (renderer) {
+        if (typeof renderer.expandItemAndParents === 'function') {
+          await renderer.expandItemAndParents(targetDirId);
+        }
+        if (typeof renderer.render === 'function') {
+          renderer.render();
+        }
+      }
+    } else {
+      orca.notify("error", "添加失败");
+    }
+  };
+
+  // 递归构建目录菜单
+  const buildDirectorySubmenu = (
+    dir: DirectoryNode,
+    targetBlockIds: string[],
+    closeMenu: () => void
+  ): any => {
+    const hasChildren = dir.children && dir.children.length > 0;
+
+    if (!hasChildren) {
+      return React.createElement(orca.components.MenuText, {
+        key: dir.id,
+        title: dir.name,
+        preIcon: dir.icon || (dir.type === 'notebook' ? 'ti ti-notebook' : 'ti ti-folder'),
+        onClick: () => handleAddBlocksToTarget(targetBlockIds, dir.id, dir.name, closeMenu)
+      });
+    }
+
+    const subItems: any[] = [];
+
+    // 添加到当前目录自身
+    subItems.push(
+      React.createElement(orca.components.MenuText, {
+        key: `${dir.id}_self`,
+        title: `添加到「${dir.name}」`,
+        preIcon: "ti ti-folder-plus",
+        onClick: () => handleAddBlocksToTarget(targetBlockIds, dir.id, dir.name, closeMenu)
+      })
+    );
+
+    subItems.push(
+      React.createElement(orca.components.MenuSeparator, { key: `${dir.id}_sep` })
+    );
+
+    // 子文件夹
+    dir.children.forEach(child => {
+      subItems.push(buildDirectorySubmenu(child, targetBlockIds, closeMenu));
+    });
+
+    return React.createElement(orca.components.MenuText, {
+      key: dir.id,
+      title: dir.name,
+      preIcon: dir.icon || (dir.type === 'notebook' ? 'ti ti-notebook' : 'ti ti-folder'),
+      children: React.createElement(orca.components.Menu, null, subItems)
+    });
+  };
+
+  // 渲染菜单命令入口
+  const renderFolderTreeMenu = (
+    targetBlockIds: string[],
+    commandTitle: string,
+    closeMenu: () => void
+  ) => {
+    if (!core) return null;
+
+    const directories = core.getDirectoryHierarchy();
+
+    // 如果 Orca 没有 components.Menu / MenuText，则回退到弹窗方案
+    if (!orca?.components?.MenuText || !orca?.components?.Menu) {
+      return React.createElement('div', {
+        onClick: () => {
+          closeMenu();
+          showDirectoryPickerDialog({
+            blockIds: targetBlockIds,
+            core: core!,
+            onSelect: (targetId, targetName) => {
+              handleAddBlocksToTarget(targetBlockIds, targetId, targetName);
+            }
+          });
+        },
+        style: { cursor: "pointer", padding: "8px" }
+      }, React.createElement('span', null, '📋'), ` ${commandTitle}`);
+    }
+
+    if (directories.length === 0) {
+      return React.createElement(orca.components.MenuText, {
+        title: `${commandTitle} (请先创建笔记本)`,
+        preIcon: "ti ti-folder-plus",
+        disabled: true
+      });
+    }
+
+    const menuItems: any[] = [];
+
+    // 目录树
+    directories.forEach(dir => {
+      menuItems.push(buildDirectorySubmenu(dir, targetBlockIds, closeMenu));
+    });
+
+    // 分隔线与弹窗选择器入口
+    menuItems.push(React.createElement(orca.components.MenuSeparator, { key: "sep_picker" }));
+    menuItems.push(
+      React.createElement(orca.components.MenuText, {
+        key: "open_picker",
+        title: "选择目标目录...",
+        preIcon: "ti ti-search",
+        onClick: () => {
+          closeMenu();
+          showDirectoryPickerDialog({
+            blockIds: targetBlockIds,
+            core: core!,
+            onSelect: (targetId, targetName) => {
+              handleAddBlocksToTarget(targetBlockIds, targetId, targetName);
+            }
+          });
+        }
+      })
+    );
+
+    return React.createElement(orca.components.MenuText, {
+      title: commandTitle,
+      preIcon: "ti ti-folder-plus",
+      children: React.createElement(orca.components.Menu, null, menuItems)
+    });
+  };
+
   // 注册单个块命令
   orca.blockMenuCommands.registerBlockMenuCommand("folder-tree-add-block", {
     worksOnMultipleBlocks: false,
     render: (blockId: number, rootBlockId: number, close: () => void) => {
-      const handleAddToFolderTree = async () => {
-        try {
-          if (!core) {
-            orca.notify("error", "文档树插件未初始化");
-            close();
-            return;
-          }
-
-          // 获取所有笔记本
-          const notebooks = core.getRootNotebooks();
-          if (notebooks.length === 0) {
-            orca.notify("error", "请先创建笔记本");
-            close();
-            return;
-          }
-
-          // 添加到第一个笔记本
-          const success = await core.addDocumentToNotebook(blockId.toString(), notebooks[0].id);
-          if (success) {
-            orca.notify("success", "已添加到文档树");
-          } else {
-            orca.notify("error", "添加失败");
-          }
-          close();
-        } catch (error) {
-          console.error("Add to folder tree error:", error);
-          orca.notify("error", "添加到文档树失败");
-          close();
-        }
-      };
-
-      return window.React.createElement('div', {
-        onClick: handleAddToFolderTree,
-        style: { cursor: "pointer", padding: "8px" }
-      }, window.React.createElement('span', null, '📋'), ' 添加到文档树');
+      return renderFolderTreeMenu([blockId.toString()], "添加到文档树", close);
     },
   });
 
@@ -106,45 +263,11 @@ function registerBlockMenuCommands() {
   orca.blockMenuCommands.registerBlockMenuCommand("folder-tree-add-blocks", {
     worksOnMultipleBlocks: true,
     render: (blockIds: number[], rootBlockId: number, close: () => void) => {
-      const handleAddMultipleToFolderTree = async () => {
-        try {
-          if (!core) {
-            orca.notify("error", "文档树插件未初始化");
-            close();
-            return;
-          }
-
-          const notebooks = core.getRootNotebooks();
-          if (notebooks.length === 0) {
-            orca.notify("error", "请先创建笔记本");
-            close();
-            return;
-          }
-
-          // 批量添加块
-          let successCount = 0;
-          for (const blockId of blockIds) {
-            const success = await core.addDocumentToNotebook(blockId.toString(), notebooks[0].id);
-            if (success) successCount++;
-          }
-
-          if (successCount > 0) {
-            orca.notify("success", `已添加 ${successCount} 个块到文档树`);
-          } else {
-            orca.notify("error", "添加失败");
-          }
-          close();
-        } catch (error) {
-          console.error("Add multiple to folder tree error:", error);
-          orca.notify("error", "批量添加到文档树失败");
-          close();
-        }
-      };
-
-      return window.React.createElement('div', {
-        onClick: handleAddMultipleToFolderTree,
-        style: { cursor: "pointer", padding: "8px" }
-      }, window.React.createElement('span', null, '📋'), ` 添加 ${blockIds.length} 个块到文档树`);
+      return renderFolderTreeMenu(
+        blockIds.map(id => id.toString()),
+        `添加 ${blockIds.length} 个块到文档树`,
+        close
+      );
     },
   });
 }

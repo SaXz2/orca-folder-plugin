@@ -5,6 +5,64 @@
 
 import { FolderTreePersistence, type FolderTreeData, type FolderItem } from "./folder-tree-persistence";
 
+export interface DirectoryNode {
+  id: string;
+  name: string;
+  type: 'notebook' | 'folder';
+  icon?: string;
+  depth: number;
+  parentId: string | null;
+  children: DirectoryNode[];
+  itemCount: number;
+}
+
+export interface DirectoryFlatItem {
+  id: string;
+  name: string;
+  type: 'notebook' | 'folder';
+  icon?: string;
+  depth: number;
+  path: string;
+  itemCount: number;
+}
+
+export function getIconByBlockType(blockType: string, reprValue?: any): string {
+  switch (blockType) {
+    case 'journal':
+      return 'ti ti-calendar-smile';
+    case 'heading': {
+      const headingLevel = reprValue?.level || 1;
+      switch (headingLevel) {
+        case 1: return 'ti ti-h-1';
+        case 2: return 'ti ti-h-2';
+        case 3: return 'ti ti-h-3';
+        case 4: return 'ti ti-h-4';
+        default: return 'ti ti-h-1';
+      }
+    }
+    case 'text':
+      return 'ti ti-cube';
+    case 'ul':
+      return 'ti ti-list';
+    case 'ol':
+      return 'ti ti-list-numbers';
+    case 'task':
+      return 'ti ti-checkbox';
+    case 'code':
+      return 'ti ti-code';
+    case 'quote2':
+      return 'ti ti-blockquote';
+    case 'math':
+      return 'ti ti-math';
+    case 'table':
+      return 'ti ti-table';
+    case 'callout':
+      return 'ti ti-alert-circle';
+    default:
+      return 'ti ti-cube';
+  }
+}
+
 class FolderTreeCore {
   private persistence: FolderTreePersistence;
   private data: FolderTreeData | null = null;
@@ -20,6 +78,8 @@ class FolderTreeCore {
   async initialize(): Promise<boolean> {
     try {
       this.data = await this.persistence.loadData();
+      // 启动时自动清理历史数据中的重复块项
+      await this.deduplicateItems();
       console.log("[Folder Tree] 核心模块初始化成功");
       return true;
     } catch (error) {
@@ -228,6 +288,16 @@ class FolderTreeCore {
     icon?: string,
     color?: string
   ): Promise<FolderItem | null> {
+    // 防重检查：如果 blockId 不为空且在同一 parent 下已存在该 blockId 的项
+    if (blockId && this.data) {
+      const existing = this.data.items.find(
+        i => (i.parentId === (parentId || null)) && i.blockId === blockId
+      );
+      if (existing) {
+        console.warn(`[Folder Tree] 项已存在于目标目录: ${existing.name} (${existing.id})`);
+        return existing;
+      }
+    }
     return this.createItem(name, type, blockId, parentId, icon, color);
   }
 
@@ -598,41 +668,214 @@ class FolderTreeCore {
   }
 
   /**
+   * 去重：清理数据中同一父目录下具有相同 blockId 的重复项
+   * 保留最早的一项，移除冗余项并同步清理父级 children
+   */
+  async deduplicateItems(containerId?: string | null): Promise<number> {
+    if (!this.data) return 0;
+
+    let removedCount = 0;
+    const items = this.data.items;
+    const seen = new Set<string>();
+    const toRemoveIds = new Set<string>();
+
+    for (const item of items) {
+      if (containerId !== undefined && item.parentId !== (containerId || null)) {
+        continue;
+      }
+      if (item.blockId) {
+        const key = `${item.parentId || 'root'}:${item.blockId}`;
+        if (seen.has(key)) {
+          toRemoveIds.add(item.id);
+          removedCount++;
+        } else {
+          seen.add(key);
+        }
+      }
+    }
+
+    if (removedCount > 0) {
+      console.log(`[Folder Tree] 检测到并清理了 ${removedCount} 个重复项`);
+      this.data.items = items.filter(item => !toRemoveIds.has(item.id));
+
+      for (const item of this.data.items) {
+        if (item.children && item.children.length > 0) {
+          item.children = item.children.filter(cid => !toRemoveIds.has(cid));
+        }
+      }
+
+      await this.saveData();
+      this.notifyDataChange();
+    }
+
+    return removedCount;
+  }
+
+  /**
+   * 获取目录层级树（仅包含笔记本和文件夹，排除已关闭笔记本）
+   */
+  getDirectoryHierarchy(): DirectoryNode[] {
+    if (!this.data) return [];
+    const closedNotebooks = new Set(this.getClosedNotebooks());
+
+    const buildTree = (parentId: string | null, depth: number): DirectoryNode[] => {
+      const items = this.data!.items.filter(item => {
+        if (item.parentId !== parentId) return false;
+        if (item.parentId === null && closedNotebooks.has(item.id)) return false;
+        return item.type === 'notebook' || item.type === 'folder';
+      });
+      items.sort((a, b) => a.order - b.order);
+
+      return items.map(item => {
+        const directChildren = this.data!.items.filter(c => c.parentId === item.id);
+        const childDirectories = buildTree(item.id, depth + 1);
+        return {
+          id: item.id,
+          name: item.name,
+          type: item.type as 'notebook' | 'folder',
+          icon: item.icon || (item.type === 'notebook' ? 'ti ti-notebook' : 'ti ti-folder'),
+          depth,
+          parentId: item.parentId,
+          children: childDirectories,
+          itemCount: directChildren.length
+        };
+      });
+    };
+
+    return buildTree(null, 0);
+  }
+
+  /**
+   * 获取所有目录的扁平列表（包含层级路径和深度，便于搜索与选择）
+   */
+  getAllDirectoriesFlat(): DirectoryFlatItem[] {
+    const hierarchy = this.getDirectoryHierarchy();
+    const result: DirectoryFlatItem[] = [];
+
+    const traverse = (nodes: DirectoryNode[], parentPath: string) => {
+      for (const node of nodes) {
+        const currentPath = parentPath ? `${parentPath} / ${node.name}` : node.name;
+        result.push({
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          icon: node.icon,
+          depth: node.depth,
+          path: currentPath,
+          itemCount: node.itemCount
+        });
+        if (node.children && node.children.length > 0) {
+          traverse(node.children, currentPath);
+        }
+      }
+    };
+
+    traverse(hierarchy, '');
+    return result;
+  }
+
+  /**
+   * 展开指定项目及其所有祖先目录
+   */
+  async expandAncestors(itemId: string): Promise<boolean> {
+    if (!this.data) return false;
+    const expanded = new Set(this.getExpandedItems());
+    let currentId: string | null = itemId;
+
+    while (currentId) {
+      expanded.add(currentId);
+      const item = this.data.items.find(i => i.id === currentId);
+      currentId = item?.parentId || null;
+    }
+
+    return await this.setExpandedState(Array.from(expanded));
+  }
+
+  /**
+   * 添加块到指定目录（笔记本或文件夹）
+   * 内置防重与去重检查、块元信息（别名/图标/颜色）提取、自动展开
+   */
+  async addDocumentToDirectory(
+    blockId: string,
+    targetId: string,
+    customName?: string
+  ): Promise<{ success: boolean; isDuplicate: boolean; item?: FolderItem }> {
+    if (!this.data) return { success: false, isDuplicate: false };
+
+    try {
+      // 1. 防重检查：目标目录下是否已存在此 blockId
+      const existingChildren = this.getItemChildren(targetId);
+      const duplicate = existingChildren.find(c => c.blockId === blockId);
+      if (duplicate) {
+        console.warn(`[Folder Tree] 块 ${blockId} 已存在于目标目录 ${targetId} (${duplicate.name})`);
+        await this.expandAncestors(targetId);
+        return { success: false, isDuplicate: true, item: duplicate };
+      }
+
+      // 2. 目标目录若为普通文档，转换为文件夹
+      const targetItem = this.getItemById(targetId);
+      if (targetItem && targetItem.type === 'document') {
+        await this.ensureFolder(targetId);
+      }
+
+      // 3. 获取块信息
+      const block = await (window as any).orca?.invokeBackend?.('get-block', blockId);
+      if (!block) {
+        console.error('[Folder Tree] 无法获取块信息:', blockId);
+        return { success: false, isDuplicate: false };
+      }
+
+      // 4. 解析名称（优先别名）
+      let blockName = customName || '未命名文档';
+      if (!customName) {
+        if (block.aliases && block.aliases.length > 0) {
+          blockName = block.aliases[0];
+        } else if (block.text) {
+          blockName = block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text;
+        }
+      }
+
+      // 5. 解析图标与颜色
+      let iconClass = 'ti ti-cube';
+      let color = '';
+
+      const iconProp = block.properties?.find((p: any) => p.name === '_icon');
+      const colorProp = block.properties?.find((p: any) => p.name === '_color');
+      const hideProp = block.properties?.find((p: any) => p.name === '_hide');
+      const reprProp = block.properties?.find((p: any) => p.name === '_repr');
+
+      if (colorProp && colorProp.type === 1) {
+        color = colorProp.value;
+      }
+
+      if (iconProp && iconProp.type === 1 && iconProp.value && iconProp.value.trim()) {
+        iconClass = iconProp.value;
+      } else if (block.aliases && block.aliases.length > 0) {
+        iconClass = hideProp && hideProp.value ? 'ti ti-file' : 'ti ti-hash';
+      } else if (reprProp && reprProp.value && reprProp.value.type) {
+        iconClass = getIconByBlockType(reprProp.value.type, reprProp.value);
+      }
+
+      // 6. 创建文档
+      const item = await this.createDocument(blockName, blockId, targetId, 'document', iconClass, color);
+      if (item) {
+        await this.expandAncestors(targetId);
+        return { success: true, isDuplicate: false, item };
+      }
+
+      return { success: false, isDuplicate: false };
+    } catch (err) {
+      console.error('[Folder Tree] addDocumentToDirectory 失败:', err);
+      return { success: false, isDuplicate: false };
+    }
+  }
+
+  /**
    * 从块ID添加文档到笔记本（兼容性方法）
    */
   async addDocumentToNotebook(blockId: string, notebookId: string): Promise<boolean> {
-    if (!this.data) return false;
-
-    try {
-      // 获取块信息
-      const block = await (window as any).orca.invokeBackend('get-block', blockId);
-      if (!block) {
-        console.error('Block not found:', blockId);
-        return false;
-      }
-
-      const blockName = block.text
-        ? (block.text.length > 50 ? block.text.substring(0, 50) + '...' : block.text)
-        : '未命名文档';
-
-      // 创建文档
-      const document = await this.createDocument(blockName, blockId, notebookId, 'document');
-      if (document) {
-        // 确保笔记本展开
-        const expandedItems = this.getExpandedItems();
-        if (!expandedItems.includes(notebookId)) {
-          expandedItems.push(notebookId);
-          await this.setExpandedState(expandedItems);
-        }
-
-        return true;
-      }
-
-      return false;
-    } catch (error) {
-      console.error('Add document to notebook error:', error);
-      return false;
-    }
+    const res = await this.addDocumentToDirectory(blockId, notebookId);
+    return res.success || res.isDuplicate;
   }
 
   /**
